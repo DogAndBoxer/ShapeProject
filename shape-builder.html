@@ -54,7 +54,7 @@
   button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
   main {
     display: grid;
-    grid-template-columns: 360px 1fr;
+    grid-template-columns: 420px 1fr;
     gap: 16px;
     padding: 16px 18px;
     flex: 1;
@@ -78,28 +78,30 @@
   }
   table#rows { border-collapse: collapse; width: 100%; }
   #rows td { padding: 4px 4px; vertical-align: middle; }
+  #rows thead td { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
   #rows tr.leg td:first-child { font-weight: 650; color: var(--ink); }
-  #rows tr.bend { background: var(--bend-row); }
-  #rows tr.bend td:first-child { color: var(--muted); padding-left: 14px; }
-  #rows td.n { width: 42px; white-space: nowrap; }
-  #rows td.unit { color: var(--muted); width: 30px; }
-  #rows td.info { color: var(--muted); font-size: 12px; white-space: nowrap; }
-  #rows td.info.red { color: var(--red); font-weight: 600; }
-  #rows td.info.amber { color: var(--amber); }
-  #rows td.act { text-align: right; white-space: nowrap; width: 64px; }
+  #rows td.n { width: 34px; white-space: nowrap; }
+  #rows td.unit { color: var(--muted); width: 26px; padding-left: 0; }
+  #rows td.bend { padding-left: 10px; border-left: 1px solid var(--line); }
+  #rows td.dircell { width: 44px; }
+  #rows td.act { text-align: right; white-space: nowrap; width: 62px; }
   #rows td.act button { padding: 2px 8px; margin-left: 3px; color: var(--muted); }
   #rows td.act button:hover { color: var(--ink); }
   #rows input[type=number] {
-    width: 96px; font-size: 17px; padding: 5px 8px;
+    width: 92px; font-size: 17px; padding: 5px 8px;
     border: 1px solid var(--line); border-radius: 6px;
     font-variant-numeric: tabular-nums; color: var(--ink); background: #fff;
   }
-  #rows tr:focus-within input { border-color: var(--accent); outline: 2px solid #bfdbfe; }
-  #rows button.dir { min-width: 78px; text-align: left; }
+  #rows input[data-kind=ang] { width: 66px; }
+  #rows input:focus { border-color: var(--accent); outline: 2px solid #bfdbfe; }
+  #rows .info { color: var(--muted); font-size: 11px; white-space: nowrap; line-height: 1.2; padding: 2px 0 0 2px; min-height: 14px; }
+  #rows .info.red { color: var(--red); font-weight: 600; }
+  #rows .info.amber { color: var(--amber); }
+  #rows button.dir { width: 40px; padding: 5px 0; text-align: center; font-size: 15px; }
   #rows button.dir.up { color: #1d4ed8; }
   #rows button.dir.down { color: #7c2d12; }
-  #rows tr.cut td { color: var(--ink); font-weight: 600; }
-  #rows tr.actions td { padding-top: 8px; }
+  #rows td.cutcell { font-weight: 600; white-space: nowrap; }
+  #rows td.cutcell button { padding: 4px 9px; }
   #view { position: relative; }
   #view svg { width: 100%; height: max(380px, calc(100vh - 330px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
   #view .toolbar { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
@@ -159,7 +161,7 @@
   <section id="entry">
     <table id="rows"></table>
     <div class="hint">
-      <kbd>Enter</kbd> next &nbsp; <kbd>C</kbd> cut on last leg &nbsp; <kbd>↑</kbd><kbd>↓</kbd> bend direction &nbsp; <kbd>Space</kbd> flip direction
+      <kbd>Enter</kbd> next field &nbsp; <kbd>C</kbd> in the last length cuts &nbsp; <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Space</kbd> set bend direction
     </div>
   </section>
 
@@ -418,31 +420,29 @@
 
   // ---------- entry table ----------
   function renderTable() {
-    let h = '';
+    let h = `<thead><tr><td></td><td>Length</td><td></td><td class="bend">Angle</td><td></td><td></td><td></td></tr></thead><tbody>`;
     st.legs.forEach((L, i) => {
-      h += `<tr class="leg" data-i="${i}">
-        <td class="n">L${i + 1}</td>
-        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="length"></td>
-        <td class="unit">mm</td>
-        <td class="info" data-info="${i}"></td>
-        <td class="act"><button title="Insert a bend and a leg after this leg" data-act="insert" data-i="${i}">+</button><button title="Delete this leg" data-act="delLeg" data-i="${i}">×</button></td>
-      </tr>`;
-      if (i < st.bends.length) {
+      const last = i === st.legs.length - 1;
+      let bendCells;
+      if (!last) {
         const b = st.bends[i];
-        h += `<tr class="bend" data-i="${i}">
-          <td class="n">B${i + 1}</td>
-          <td><input type="number" inputmode="decimal" min="1" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
+        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="1" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
           <td class="unit">°</td>
-          <td><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction">${b.d > 0 ? '▲ up' : '▼ down'}</button></td>
-          <td class="act"><button title="Delete this bend and the leg after it" data-act="delBend" data-i="${i}">×</button></td>
-        </tr>`;
+          <td class="dircell"><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction: ${b.d > 0 ? 'up' : 'down'}">${b.d > 0 ? '▲' : '▼'}</button></td>`;
+      } else if (st.cut) {
+        bendCells = `<td class="bend cutcell" colspan="3">✂ Cut</td>`;
+      } else {
+        bendCells = `<td class="bend cutcell" colspan="3"><button data-act="addBend" title="Add a bend after this leg">+ Bend</button> <button data-act="cut" title="Cut after this leg">✂ Cut</button></td>`;
       }
+      h += `<tr class="leg" data-i="${i}">
+        <td class="n">${i + 1}</td>
+        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="length"><div class="info" data-info="${i}"></div></td>
+        <td class="unit">mm</td>
+        ${bendCells}
+        <td class="act"><button title="Insert a leg after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this leg and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
+      </tr>`;
     });
-    if (st.cut) {
-      h += `<tr class="cut"><td class="n">✂</td><td colspan="3">Cut</td><td class="act"><button title="Remove the cut and keep adding" data-act="uncut">×</button></td></tr>`;
-    } else {
-      h += `<tr class="actions"><td></td><td colspan="4"><button data-act="addBend">+ Bend</button> <button data-act="cut">✂ Cut</button></td></tr>`;
-    }
+    h += '</tbody>';
     $('#rows').innerHTML = h;
   }
 
@@ -466,7 +466,7 @@
   function setDir(i, d) {
     st.bends[i].d = d;
     const b = document.querySelector(`button[data-act="dir"][data-i="${i}"]`);
-    if (b) { b.className = 'dir ' + (d > 0 ? 'up' : 'down'); b.textContent = d > 0 ? '▲ up' : '▼ down'; }
+    if (b) { b.className = 'dir ' + (d > 0 ? 'up' : 'down'); b.textContent = d > 0 ? '▲' : '▼'; b.title = 'Bend direction: ' + (d > 0 ? 'up' : 'down'); }
   }
 
   // ---------- serialisation ----------
@@ -575,12 +575,11 @@
     switch (act) {
       case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
       case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
-      case 'delLeg':
+      case 'delRow':
         if (st.legs.length === 1) { st.legs = [null]; st.bends = []; st.cut = false; }
-        else if (i === 0) { st.legs.splice(0, 1); st.bends.splice(0, 1); }
+        else if (i < st.bends.length) { st.legs.splice(i, 1); st.bends.splice(i, 1); }
         else { st.legs.splice(i, 1); st.bends.splice(i - 1, 1); }
-        rebuild({ kind: 'len', i: Math.max(0, i - 1) }); break;
-      case 'delBend': st.bends.splice(i, 1); st.legs.splice(i + 1, 1); rebuild({ kind: 'len', i }); break;
+        rebuild({ kind: 'len', i: Math.min(i, st.legs.length - 1) }); break;
       case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
       case 'cut': st.cut = true; rebuild(); break;
       case 'uncut': st.cut = false; rebuild({ kind: 'len', i: st.legs.length - 1 }); break;
