@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shape Builder</title>
+<style>
+  :root {
+    --bg: #f3f4f6;
+    --panel: #ffffff;
+    --ink: #111827;
+    --muted: #6b7280;
+    --line: #d1d5db;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+    --bend-row: #f8fafc;
+    --red: #dc2626;
+    --amber: #b45309;
+    --bar: #111111;
+    --dim: #2563eb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 22px;
+    padding: 10px 18px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; letter-spacing: .01em; }
+  header label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  header input[type=number] {
+    width: 76px; font-size: 15px; padding: 5px 7px;
+    border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff;
+  }
+  header .spacer { flex: 1; }
+  button {
+    font: inherit; padding: 5px 11px; border-radius: 6px; cursor: pointer;
+    border: 1px solid var(--line); background: #fff; color: var(--ink);
+  }
+  button:hover { border-color: #9ca3af; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
+  main {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 16px;
+    padding: 16px 18px;
+    flex: 1;
+  }
+  @media (max-width: 860px) {
+    main { grid-template-columns: 1fr; }
+    #view svg { height: 380px; }
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+  }
+  #entry { padding: 12px; }
+  #entry .hint { color: var(--muted); font-size: 12px; padding: 10px 4px 2px; border-top: 1px solid var(--line); margin-top: auto; }
+  #entry .hint kbd {
+    font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; background: #f9fafb;
+  }
+  table#rows { border-collapse: collapse; width: 100%; }
+  #rows td { padding: 4px 4px; vertical-align: middle; }
+  #rows tr.leg td:first-child { font-weight: 650; color: var(--ink); }
+  #rows tr.bend { background: var(--bend-row); }
+  #rows tr.bend td:first-child { color: var(--muted); padding-left: 14px; }
+  #rows td.n { width: 42px; white-space: nowrap; }
+  #rows td.unit { color: var(--muted); width: 30px; }
+  #rows td.info { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #rows td.info.red { color: var(--red); font-weight: 600; }
+  #rows td.info.amber { color: var(--amber); }
+  #rows td.act { text-align: right; white-space: nowrap; width: 64px; }
+  #rows td.act button { padding: 2px 8px; margin-left: 3px; color: var(--muted); }
+  #rows td.act button:hover { color: var(--ink); }
+  #rows input[type=number] {
+    width: 96px; font-size: 17px; padding: 5px 8px;
+    border: 1px solid var(--line); border-radius: 6px;
+    font-variant-numeric: tabular-nums; color: var(--ink); background: #fff;
+  }
+  #rows tr:focus-within input { border-color: var(--accent); outline: 2px solid #bfdbfe; }
+  #rows button.dir { min-width: 78px; text-align: left; }
+  #rows button.dir.up { color: #1d4ed8; }
+  #rows button.dir.down { color: #7c2d12; }
+  #rows tr.cut td { color: var(--ink); font-weight: 600; }
+  #rows tr.actions td { padding-top: 8px; }
+  #view { position: relative; }
+  #view svg { width: 100%; height: max(380px, calc(100vh - 330px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
+  #view .toolbar { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
+  #view .toolbar button { background: rgba(255,255,255,.9); }
+  #stats {
+    border-top: 1px solid var(--line);
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 6px 18px;
+    font-size: 13px;
+  }
+  #stats .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  #stats .v { font-size: 16px; font-variant-numeric: tabular-nums; }
+  #stats .v.red { color: var(--red); }
+  #warnings { grid-column: 1 / -1; color: var(--red); font-size: 13px; }
+  #warnings .amber { color: var(--amber); }
+  #warnings div + div { margin-top: 2px; }
+  #empty { position: absolute; inset: 0 0 auto 0; padding: 40px; text-align: center; color: var(--muted); pointer-events: none; }
+  footer {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 10px 18px; background: var(--panel); border-top: 1px solid var(--line);
+  }
+  footer label { color: var(--muted); }
+  footer input#code {
+    flex: 1; min-width: 240px; font: 14px ui-monospace, Menlo, Consolas, monospace;
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff;
+  }
+  footer .note { color: var(--muted); font-size: 12px; width: 100%; }
+  svg text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  svg text.leg { font-size: 15px; font-weight: 650; fill: var(--ink); }
+  svg text.leg.red { fill: var(--red); }
+  svg text.leg.amber { fill: var(--amber); }
+  svg text.ang { font-size: 12px; fill: var(--muted); }
+  svg text.dim { font-size: 12px; fill: var(--dim); }
+  svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
+  svg .ext { stroke: var(--dim); stroke-width: .75; opacity: .6; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Shape Builder</h1>
+  <label>Bar Ø <input id="gauge" type="number" list="gauges" min="3" step="0.5"> mm</label>
+  <datalist id="gauges">
+    <option value="6"><option value="8"><option value="10"><option value="12"><option value="16">
+    <option value="20"><option value="24"><option value="28"><option value="32"><option value="36"><option value="40">
+  </datalist>
+  <label>Pin Ø <input id="pin" type="number" min="1" step="1"> mm
+    <button id="pinReset" class="link" title="Reset pin to the default for this bar size">auto</button>
+  </label>
+  <div class="spacer"></div>
+  <button id="newShape">New shape</button>
+</header>
+
+<main>
+  <section id="entry">
+    <table id="rows"></table>
+    <div class="hint">
+      <kbd>Enter</kbd> next &nbsp; <kbd>C</kbd> cut on last leg &nbsp; <kbd>↑</kbd><kbd>↓</kbd> bend direction &nbsp; <kbd>Space</kbd> flip direction
+    </div>
+  </section>
+
+  <section id="view">
+    <div class="toolbar">
+      <button id="rotate" title="Rotate the view 90°">⟳ Rotate</button>
+      <button id="mirror" title="Mirror the view">⇋ Mirror</button>
+    </div>
+    <div id="empty" hidden>Enter a leg length to start.</div>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="#2563eb"/>
+        </marker>
+      </defs>
+      <g id="g"></g>
+    </svg>
+    <div id="stats"></div>
+  </section>
+</main>
+
+<footer>
+  <label for="code">Shape code</label>
+  <input id="code" spellcheck="false">
+  <button id="loadCode">Load</button>
+  <button id="copyCode">Copy code</button>
+  <button id="copyJson">Copy JSON</button>
+  <button id="copyLink">Copy link</button>
+  <div class="note">Legs and bends alternate. Bends take <b>u</b> or <b>d</b> for direction, <b>C</b> marks the cut. Example: <code>250 135d 1000 90u 500 C</code>. Bar and pin are carried in the link, not the code.</div>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const PIN_RATIO = 4;           // default pin diameter as a multiple of bar diameter
+  const MIN_PX = 14;             // shortest a leg is drawn, for legibility
+  const ARC_STEP_DEG = 4;
+  const HOOK_WARN_ABOVE = 165;   // angles above this and below 180 have no usable virtual corner
+
+  const st = {
+    gauge: 12, pin: 48, pinAuto: true,
+    legs: [250, 1000, 500],
+    bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],
+    cut: true,
+    rot: 0, mirror: false,
+  };
+
+  // ---------- geometry ----------
+  const rad = deg => deg * Math.PI / 180;
+  const num = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
+  const clampAngle = a => Math.min(180, Math.max(1, num(a) ?? 90));
+  const fmt = v => String(Math.round(v));
+
+  function analyse() {
+    const d = st.gauge || 0, pin = st.pin || 0;
+    const Ro = pin / 2 + d;        // outside radius of the bend
+    const R = pin / 2 + d / 2;     // centreline radius
+    const setbacks = st.bends.map(b => {
+      const a = clampAngle(b.a);
+      return a >= 180 ? Ro : Ro * Math.tan(rad(a) / 2);
+    });
+    const legs = st.legs.map((L, i) => {
+      const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
+      const empty = L == null;
+      const S = (empty ? 0 : L) - min;
+      return { L, min, S, empty, short: !empty && S < 0 };
+    });
+    const arcLen = st.bends.reduce((s, b) => s + R * rad(clampAngle(b.a)), 0);
+    const developed = legs.reduce((s, l) => s + Math.max(0, l.S), 0) + arcLen;
+    const warnings = [];
+    legs.forEach((l, i) => {
+      if (l.short) warnings.push({ cls: 'red', text: `L${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
+      if (l.empty) warnings.push({ cls: 'amber', text: `L${i + 1} has no length.` });
+    });
+    st.bends.forEach((b, i) => {
+      const a = clampAngle(b.a);
+      if (a > HOOK_WARN_ABOVE && a < 180) warnings.push({ cls: 'amber', text: `B${i + 1} = ${a}° has no usable virtual corner. Use ${HOOK_WARN_ABOVE}° or less, or 180°.` });
+    });
+    if (!st.cut && st.legs.length) warnings.push({ cls: 'amber', text: 'Shape is not cut yet.' });
+    return { d, pin, Ro, R, setbacks, legs, developed, warnings };
+  }
+
+  // Walk the shape as a turtle in maths coordinates (y up). Drawn from the last
+  // entered leg heading right, matching the machine HMI; "up" bends turn anticlockwise.
+  function buildPath(an, scale, minPx) {
+    const n = st.legs.length;
+    const halfW = an.d * scale / 2;
+    const r = an.R * scale;
+    let x = 0, y = 0, phi = 0;
+    const pieces = [];
+    for (let k = 0; k < n; k++) {
+      const i = n - 1 - k;
+      const leg = an.legs[i];
+      let len = Math.max(0, leg.S) * scale, clamped = false;
+      if (leg.S > 0 && len < minPx) { len = minPx; clamped = true; }
+      const p0 = [x, y];
+      x += len * Math.cos(phi); y += len * Math.sin(phi);
+      pieces.push({ type: 'leg', i, p0, p1: [x, y], dir: [Math.cos(phi), Math.sin(phi)], clamped });
+      if (i > 0) {
+        const b = st.bends[i - 1];
+        const aDeg = clampAngle(b.a), theta = rad(aDeg);
+        const s = b.d >= 0 ? 1 : -1;
+        const cx = x + r * Math.cos(phi + s * Math.PI / 2), cy = y + r * Math.sin(phi + s * Math.PI / 2);
+        const a0 = phi - s * Math.PI / 2;
+        const steps = Math.max(2, Math.ceil(aDeg / ARC_STEP_DEG));
+        const pts = [];
+        for (let j = 0; j <= steps; j++) {
+          const a = a0 + s * theta * j / steps;
+          pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+        }
+        const am = a0 + s * theta / 2;
+        pieces.push({ type: 'arc', i: i - 1, c: [cx, cy], r, pts, aDeg, out: [Math.cos(am), Math.sin(am)] });
+        phi += s * theta;
+        [x, y] = pts[pts.length - 1];
+      }
+    }
+    return { pieces, halfW };
+  }
+
+  function viewXform() {
+    const k = ((st.rot % 4) + 4) % 4, c = [1, 0, -1, 0][k], s = [0, 1, 0, -1][k], m = st.mirror ? -1 : 1;
+    return p => { const x = p[0] * m, y = p[1]; return [c * x - s * y, s * x + c * y]; };
+  }
+
+  function outlineBox(path, T) {
+    const { pieces, halfW } = path;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const add = p => { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); };
+    for (const pc of pieces) {
+      if (pc.type === 'leg') {
+        const d = T(pc.dir), nrm = [-d[1] * halfW, d[0] * halfW];
+        for (const p of [T(pc.p0), T(pc.p1)]) { add([p[0] + nrm[0], p[1] + nrm[1]]); add([p[0] - nrm[0], p[1] - nrm[1]]); }
+      } else {
+        const c = T(pc.c);
+        for (const q of pc.pts) {
+          const p = T(q), vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1;
+          add([c[0] + vx * (pc.r + halfW) / L, c[1] + vy * (pc.r + halfW) / L]);
+          add([c[0] + vx * (pc.r - halfW) / L, c[1] + vy * (pc.r - halfW) / L]);
+        }
+      }
+    }
+    if (!isFinite(minX)) { minX = maxX = minY = maxY = 0; }
+    return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  }
+
+  // ---------- drawing ----------
+  const svg = $('#svg'), g = $('#g');
+  const el = (name, attrs, text) => {
+    const e = document.createElementNS('http://www.w3.org/2000/svg', name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  };
+  let lastClamped = new Set();
+
+  function renderDrawing(an) {
+    const W = svg.clientWidth || 600, H = svg.clientHeight || 400;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    g.innerHTML = '';
+    lastClamped = new Set();
+    const hasShape = st.legs.some(l => l != null && l > 0);
+    $('#empty').hidden = hasShape;
+    if (!hasShape) return { w: 0, h: 0 };
+
+    const T = viewXform();
+    const pad = 88, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
+    const trueBox = outlineBox(buildPath(an, 1, 0), T);
+    let scale = Math.min(availW / (trueBox.w || 1), availH / (trueBox.h || 1));
+    let path, box;
+    for (let iter = 0; iter < 6; iter++) {
+      path = buildPath(an, scale, MIN_PX);
+      box = outlineBox(path, T);
+      if (box.w <= availW + .5 && box.h <= availH + .5) break;
+      scale *= Math.min(availW / box.w, availH / box.h) * 0.985;
+    }
+    const ox = pad + (availW - box.w) / 2 - box.minX;
+    const oy = pad + (availH - box.h) / 2 + box.maxY;
+    const S = p => { const q = T(p); return [ox + q[0], oy - q[1]]; };
+    const SV = v => { const q = T(v); return [q[0], -q[1]]; };
+
+    // bar
+    const pts = [];
+    for (const pc of path.pieces) {
+      if (pc.type === 'leg') { if (!pts.length) pts.push(S(pc.p0)); pts.push(S(pc.p1)); }
+      else for (const q of pc.pts.slice(1)) pts.push(S(q));
+    }
+    g.appendChild(el('polyline', {
+      points: pts.map(p => p.map(v => v.toFixed(2)).join(',')).join(' '),
+      fill: 'none', stroke: '#111', 'stroke-width': Math.max(1.5, path.halfW * 2),
+      'stroke-linejoin': 'round', 'stroke-linecap': 'butt',
+    }));
+
+    // labels
+    const cx = ox + (box.minX + box.maxX) / 2, cy = oy - (box.minY + box.maxY) / 2;
+    path.pieces.forEach((pc, k) => {
+      if (pc.type === 'leg') {
+        const leg = an.legs[pc.i];
+        if (leg.empty) return;
+        const p0 = S(pc.p0), p1 = S(pc.p1), d = SV(pc.dir);
+        const m = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
+        const text = fmt(leg.L);
+        // side: away from the centre of the neighbouring bend(s); if they disagree, away from the shape centre
+        let n = [-d[1], d[0]], vote = 0;
+        for (const nb of [path.pieces[k - 1], path.pieces[k + 1]]) {
+          if (!nb || nb.type !== 'arc') continue;
+          const c = S(nb.c);
+          vote += Math.sign((m[0] - c[0]) * n[0] + (m[1] - c[1]) * n[1]);
+        }
+        if (vote === 0) vote = Math.sign((m[0] - cx) * n[0] + (m[1] - cy) * n[1]) || 1;
+        if (vote < 0) n = [-n[0], -n[1]];
+        const off = path.halfW + 6 + Math.abs(n[0]) * (text.length * 4.6) + Math.abs(n[1]) * 8;
+        if (pc.clamped) lastClamped.add(pc.i);
+        g.appendChild(el('text', {
+          x: (m[0] + n[0] * off).toFixed(1), y: (m[1] + n[1] * off).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          class: 'leg' + (leg.short ? ' red' : pc.clamped ? ' amber' : ''),
+        }, text));
+      } else if (pc.aDeg !== 90) {
+        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
+        g.appendChild(el('text', {
+          x: (c[0] + o[0] * dist).toFixed(1), y: (c[1] + o[1] * dist).toFixed(1),
+          'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang',
+        }, `${pc.aDeg}°`));
+      }
+    });
+
+    // overall dimensions (true values, drawn envelope)
+    const x0 = ox + box.minX, x1 = ox + box.maxX, y0 = oy - box.maxY, y1 = oy - box.minY;
+    const dy = y1 + 40, dx = x1 + 56;
+    g.appendChild(el('line', { x1: x0, y1: y1 + 8, x2: x0, y2: dy + 5, class: 'ext' }));
+    g.appendChild(el('line', { x1: x1, y1: y1 + 8, x2: x1, y2: dy + 5, class: 'ext' }));
+    g.appendChild(el('line', { x1: x0, y1: dy, x2: x1, y2: dy, class: 'dimline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
+    g.appendChild(el('text', { x: (x0 + x1) / 2, y: dy + 15, 'text-anchor': 'middle', class: 'dim' }, fmt(trueBox.w)));
+    g.appendChild(el('line', { x1: x1 + 8, y1: y0, x2: dx + 5, y2: y0, class: 'ext' }));
+    g.appendChild(el('line', { x1: x1 + 8, y1: y1, x2: dx + 5, y2: y1, class: 'ext' }));
+    g.appendChild(el('line', { x1: dx, y1: y0, x2: dx, y2: y1, class: 'dimline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
+    g.appendChild(el('text', { x: dx + 8, y: (y0 + y1) / 2, 'dominant-baseline': 'middle', class: 'dim' }, fmt(trueBox.h)));
+    return trueBox;
+  }
+
+  function renderStats(an, box) {
+    const cutState = st.cut ? 'Cut' : 'Open';
+    const rows = [
+      ['Developed length', fmt(an.developed) + ' mm'],
+      ['Overall', `${fmt(box.w)} × ${fmt(box.h)} mm`],
+      ['Bends', String(st.bends.length)],
+      ['Bend radius', `Ro ${fmt(an.Ro)} · CL ${fmt(an.R)} mm`],
+      ['Status', cutState],
+    ];
+    let h = rows.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    const w = an.warnings.slice();
+    if (lastClamped.size) w.push({ cls: 'amber', text: `Amber legs are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'L' + (i + 1)).join(', ')}).` });
+    if (w.length) h += `<div id="warnings">${w.map(x => `<div class="${x.cls}">${x.text}</div>`).join('')}</div>`;
+    $('#stats').innerHTML = h;
+  }
+
+  // ---------- entry table ----------
+  function renderTable() {
+    let h = '';
+    st.legs.forEach((L, i) => {
+      h += `<tr class="leg" data-i="${i}">
+        <td class="n">L${i + 1}</td>
+        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="length"></td>
+        <td class="unit">mm</td>
+        <td class="info" data-info="${i}"></td>
+        <td class="act"><button title="Insert a bend and a leg after this leg" data-act="insert" data-i="${i}">+</button><button title="Delete this leg" data-act="delLeg" data-i="${i}">×</button></td>
+      </tr>`;
+      if (i < st.bends.length) {
+        const b = st.bends[i];
+        h += `<tr class="bend" data-i="${i}">
+          <td class="n">B${i + 1}</td>
+          <td><input type="number" inputmode="decimal" min="1" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
+          <td class="unit">°</td>
+          <td><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction">${b.d > 0 ? '▲ up' : '▼ down'}</button></td>
+          <td class="act"><button title="Delete this bend and the leg after it" data-act="delBend" data-i="${i}">×</button></td>
+        </tr>`;
+      }
+    });
+    if (st.cut) {
+      h += `<tr class="cut"><td class="n">✂</td><td colspan="3">Cut</td><td class="act"><button title="Remove the cut and keep adding" data-act="uncut">×</button></td></tr>`;
+    } else {
+      h += `<tr class="actions"><td></td><td colspan="4"><button data-act="addBend">+ Bend</button> <button data-act="cut">✂ Cut</button></td></tr>`;
+    }
+    $('#rows').innerHTML = h;
+  }
+
+  function updateInfos(an) {
+    an.legs.forEach((l, i) => {
+      const td = document.querySelector(`[data-info="${i}"]`);
+      if (!td) return;
+      td.className = 'info';
+      if (l.empty) { td.textContent = ''; return; }
+      if (l.short) { td.classList.add('red'); td.textContent = `min ${fmt(l.min)}`; return; }
+      if (lastClamped.has(i)) td.classList.add('amber');
+      td.textContent = `straight ${fmt(l.S)}`;
+    });
+  }
+
+  function focusInput(kind, i, select) {
+    const inp = document.querySelector(`input[data-kind="${kind}"][data-i="${i}"]`);
+    if (inp) { inp.focus(); if (select) inp.select(); }
+  }
+
+  function setDir(i, d) {
+    st.bends[i].d = d;
+    const b = document.querySelector(`button[data-act="dir"][data-i="${i}"]`);
+    if (b) { b.className = 'dir ' + (d > 0 ? 'up' : 'down'); b.textContent = d > 0 ? '▲ up' : '▼ down'; }
+  }
+
+  // ---------- serialisation ----------
+  function toCode() {
+    const parts = [];
+    st.legs.forEach((L, i) => {
+      parts.push(L == null ? '_' : String(L));
+      if (i < st.bends.length) parts.push(`${clampAngle(st.bends[i].a)}${st.bends[i].d > 0 ? 'u' : 'd'}`);
+    });
+    if (st.cut) parts.push('C');
+    return parts.join(' ');
+  }
+  function parseCode(code) {
+    const toks = String(code).trim().split(/[\s,]+/).filter(Boolean);
+    const legs = [], bends = [];
+    let cut = false;
+    for (let k = 0; k < toks.length; k++) {
+      const t = toks[k].toLowerCase();
+      if (t === 'c' || t === 'cut') { cut = true; break; }
+      if (legs.length === bends.length) {
+        legs.push(t === '_' ? null : num(t));
+        if (legs[legs.length - 1] === undefined) return null;
+      } else {
+        const m = t.match(/^(\d+(?:\.\d+)?)([ud]?)$/);
+        if (!m) return null;
+        bends.push({ a: clampAngle(m[1]), d: m[2] === 'd' ? -1 : 1 });
+      }
+    }
+    if (!legs.length) return null;
+    if (legs.length === bends.length) legs.push(null);
+    return { legs, bends, cut };
+  }
+  function toJSON() {
+    return JSON.stringify({
+      gauge: st.gauge, pin: st.pin,
+      legs: st.legs, bends: st.bends.map(b => ({ angle: clampAngle(b.a), dir: b.d > 0 ? 'up' : 'down' })),
+      cut: st.cut, code: toCode(),
+    }, null, 2);
+  }
+  function toHash() {
+    return `#g=${st.gauge}&p=${st.pin}&s=${encodeURIComponent(toCode())}`;
+  }
+  function loadHash() {
+    if (!location.hash || location.hash.length < 2) return false;
+    const q = new URLSearchParams(location.hash.slice(1));
+    const parsed = q.get('s') ? parseCode(q.get('s')) : null;
+    if (!parsed) return false;
+    Object.assign(st, parsed);
+    if (num(q.get('g'))) st.gauge = num(q.get('g'));
+    if (num(q.get('p'))) { st.pin = num(q.get('p')); st.pinAuto = st.pin === st.gauge * PIN_RATIO; }
+    else st.pin = st.gauge * PIN_RATIO;
+    return true;
+  }
+
+  // ---------- update cycle ----------
+  function onChange() {
+    const an = analyse();
+    const box = renderDrawing(an);
+    renderStats(an, box);
+    updateInfos(an);
+    $('#code').value = toCode();
+    try { history.replaceState(null, '', toHash()); } catch (e) { /* sandboxed host: link sharing unavailable */ }
+  }
+  function rebuild(focus) {
+    renderTable();
+    onChange();
+    if (focus) focusInput(focus.kind, focus.i, focus.select);
+  }
+
+  // ---------- events ----------
+  $('#rows').addEventListener('input', e => {
+    const inp = e.target;
+    if (inp.dataset.kind === 'len') st.legs[+inp.dataset.i] = num(inp.value);
+    else if (inp.dataset.kind === 'ang') st.bends[+inp.dataset.i].a = clampAngle(inp.value);
+    else return;
+    onChange();
+  });
+
+  $('#rows').addEventListener('keydown', e => {
+    const inp = e.target;
+    if (!(inp instanceof HTMLInputElement)) return;
+    const i = +inp.dataset.i, kind = inp.dataset.kind;
+    if (kind === 'len') {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (i < st.legs.length - 1) return focusInput('ang', i, true);
+        if (st.cut || st.legs[i] == null) return;
+        st.bends.push({ a: 90, d: 1 }); st.legs.push(null);
+        rebuild({ kind: 'ang', i, select: true });
+      } else if ((e.key === 'c' || e.key === 'C') && i === st.legs.length - 1 && !st.cut) {
+        e.preventDefault();
+        if (st.legs[i] != null) { st.cut = true; rebuild(); inp.blur(); }
+      }
+    } else if (kind === 'ang') {
+      if (e.key === 'Enter') { e.preventDefault(); focusInput('len', i + 1, true); }
+      else if (e.key === 'ArrowUp' || e.key === 'u' || e.key === 'U') { e.preventDefault(); setDir(i, 1); onChange(); }
+      else if (e.key === 'ArrowDown' || e.key === 'd' || e.key === 'D') { e.preventDefault(); setDir(i, -1); onChange(); }
+      else if (e.key === ' ') { e.preventDefault(); setDir(i, -st.bends[i].d); onChange(); }
+    }
+  });
+
+  $('#rows').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const i = +btn.dataset.i, act = btn.dataset.act;
+    switch (act) {
+      case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
+      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
+      case 'delLeg':
+        if (st.legs.length === 1) { st.legs = [null]; st.bends = []; st.cut = false; }
+        else if (i === 0) { st.legs.splice(0, 1); st.bends.splice(0, 1); }
+        else { st.legs.splice(i, 1); st.bends.splice(i - 1, 1); }
+        rebuild({ kind: 'len', i: Math.max(0, i - 1) }); break;
+      case 'delBend': st.bends.splice(i, 1); st.legs.splice(i + 1, 1); rebuild({ kind: 'len', i }); break;
+      case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
+      case 'cut': st.cut = true; rebuild(); break;
+      case 'uncut': st.cut = false; rebuild({ kind: 'len', i: st.legs.length - 1 }); break;
+    }
+  });
+
+  const gaugeInp = $('#gauge'), pinInp = $('#pin');
+  function syncHeader() { gaugeInp.value = st.gauge; pinInp.value = st.pin; }
+  gaugeInp.addEventListener('input', () => {
+    st.gauge = num(gaugeInp.value) || 0;
+    if (st.pinAuto) { st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; }
+    onChange();
+  });
+  pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
+  $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
+  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
+  $('#rotate').addEventListener('click', () => { st.rot = (st.rot + 1) % 4; onChange(); });
+  $('#mirror').addEventListener('click', () => { st.mirror = !st.mirror; onChange(); });
+
+  $('#loadCode').addEventListener('click', () => {
+    const parsed = parseCode($('#code').value);
+    if (!parsed) { $('#code').select(); return; }
+    Object.assign(st, parsed);
+    rebuild();
+  });
+  $('#code').addEventListener('keydown', e => { if (e.key === 'Enter') $('#loadCode').click(); });
+  const copy = (btn, text) => navigator.clipboard.writeText(text).then(() => {
+    const old = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => btn.textContent = old, 900);
+  });
+  $('#copyCode').addEventListener('click', e => copy(e.target, toCode()));
+  $('#copyJson').addEventListener('click', e => copy(e.target, toJSON()));
+  $('#copyLink').addEventListener('click', e => copy(e.target, location.href.split('#')[0] + toHash()));
+
+  new ResizeObserver(() => onChange()).observe(svg);
+  window.addEventListener('hashchange', () => { if (loadHash()) { syncHeader(); rebuild(); } });
+
+  loadHash();
+  syncHeader();
+  rebuild();
+})();
+</script>
+</body>
+</html>
