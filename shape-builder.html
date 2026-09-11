@@ -13,7 +13,6 @@
     --line: #d1d5db;
     --accent: #2563eb;
     --accent-ink: #ffffff;
-    --bend-row: #f8fafc;
     --red: #dc2626;
     --amber: #b45309;
     --bar: #111111;
@@ -50,8 +49,8 @@
     border: 1px solid var(--line); background: #fff; color: var(--ink);
   }
   button:hover { border-color: #9ca3af; }
-  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
+  button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   main {
     display: grid;
     grid-template-columns: 420px 1fr;
@@ -105,9 +104,13 @@
   #rows td.cutcell { font-weight: 600; white-space: nowrap; }
   #rows td.cutcell button { padding: 4px 9px; }
   #view { position: relative; }
-  #view svg { width: 100%; height: max(380px, calc(100vh - 330px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
+  #view svg { width: 100%; height: max(380px, calc(100vh - 360px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
   #view .toolbar { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
   #view .toolbar button { background: rgba(255,255,255,.9); }
+  #view .toolbar button.on { background: var(--accent); }
+  #view .toolbar .seg { display: inline-flex; }
+  #view .toolbar .seg button:first-child { border-radius: 6px 0 0 6px; }
+  #view .toolbar .seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
   #stats {
     border-top: 1px solid var(--line);
     padding: 10px 14px;
@@ -118,7 +121,10 @@
   }
   #stats .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
   #stats .v { font-size: 16px; font-variant-numeric: tabular-nums; }
-  #stats .v.red { color: var(--red); }
+  #stats .wide { grid-column: 1 / -1; }
+  #stats table.off { border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  #stats table.off td { padding: 1px 12px 1px 0; }
+  #stats table.off td:first-child { color: var(--muted); }
   #warnings { grid-column: 1 / -1; color: var(--red); font-size: 13px; }
   #warnings .amber { color: var(--amber); }
   #warnings div + div { margin-top: 2px; }
@@ -163,7 +169,7 @@
   <section id="entry">
     <div class="tools">
       <button id="flipBends" title="Swap up and down on every bend">⇅ Flip bends</button>
-      <button id="reverseOrder" title="Enter the shape from the other end: last leg becomes first">⇄ Reverse order</button>
+      <button id="reverseOrder" title="Enter the shape from the other end: last segment becomes first">⇄ Reverse order</button>
     </div>
     <table id="rows"></table>
     <div class="hint">
@@ -173,10 +179,13 @@
 
   <section id="view">
     <div class="toolbar">
+      <span class="seg">
+        <button id="viewStd" title="Segment 1 on the X axis, start of bar at the left (Shape Definition Standard)">Standard</button>
+        <button id="viewMach" title="Last segment flat, as drawn on the machine screen">Machine</button>
+      </span>
       <button id="rotate" title="Rotate the view 90°">⟳ Rotate</button>
-      <button id="mirror" title="Mirror the view">⇋ Mirror</button>
     </div>
-    <div id="empty" hidden>Enter a leg length to start.</div>
+    <div id="empty" hidden>Enter a segment length to start.</div>
     <svg id="svg" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -196,7 +205,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note">Legs and bends alternate. Bends take <b>u</b> or <b>d</b> for direction, <b>C</b> marks the cut. Example: <code>250 135d 1000 90u 500 C</code>. Bar and pin are carried in the link, not the code.</div>
+  <div class="note">NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -204,26 +213,28 @@
   'use strict';
   const $ = s => document.querySelector(s);
   const PIN_RATIO = 4;           // default pin diameter as a multiple of bar diameter
-  const MIN_PX = 14;             // shortest a leg is drawn, for legibility
+  const MIN_PX = 14;             // shortest a straight segment is drawn, for legibility
   const ARC_STEP_DEG = 4;
   const HOOK_WARN_ABOVE = 165;   // angles above this and below 180 have no usable virtual corner
 
   const st = {
     gauge: 12, pin: 48, pinAuto: true,
-    legs: [250, 1000, 500],
-    bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],
+    legs: [250, 1000, 500],      // out-to-out segment lengths (arc length for arc segments)
+    radii: [null, null, null],   // null = straight; signed radius, clockwise positive, for arc segments
+    bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],  // a = bend angle, d = +1 up (clockwise forward), -1 down
     cut: true,
-    rot: 0, mirror: false,
+    view: 'standard', rot: 0,
   };
 
   // ---------- geometry ----------
   const rad = deg => deg * Math.PI / 180;
   const num = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
-  const clampAngle = a => Math.min(180, Math.max(1, num(a) ?? 90));
+  const clampAngle = a => Math.min(180, Math.max(0, num(a) ?? 90));
   const fmt = v => String(Math.round(v));
+  const fmtA = a => (Math.round(a * 100) / 100).toString();
 
   function analyse() {
-    const d = st.gauge || 0, pin = st.pin || 0;
+    const d = st.gauge || 0, pin = st.pin || 0, n = st.legs.length;
     const Ro = pin / 2 + d;        // outside radius of the bend
     const R = pin / 2 + d / 2;     // centreline radius
     const setbacks = st.bends.map(b => {
@@ -234,64 +245,87 @@
       const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
       const empty = L == null;
       const S = (empty ? 0 : L) - min;
-      return { L, min, S, empty, short: !empty && S < 0 };
+      const r = st.radii[i];
+      return { L, min, S, empty, short: !empty && S < 0, arc: r != null && r !== 0, r };
     });
+    // Start and end treatments (hooks and cogs): an end segment whose bend is 90 or more and which is
+    // shorter than the segment it joins. Segment 1 is the first segment that is not a treatment.
+    const has = i => legs[i] && !legs[i].empty;
+    const startTreat = n >= 2 && has(0) && has(1) && clampAngle(st.bends[0].a) >= 90 && legs[0].L < legs[1].L;
+    const endTreat = n >= 2 && has(n - 1) && has(n - 2) && clampAngle(st.bends[n - 2].a) >= 90 && legs[n - 1].L < legs[n - 2].L;
+    const seg1 = startTreat ? 1 : 0;
     const arcLen = st.bends.reduce((s, b) => s + R * rad(clampAngle(b.a)), 0);
     const developed = legs.reduce((s, l) => s + Math.max(0, l.S), 0) + arcLen;
+    const overall = legs.reduce((s, l) => s + (l.L || 0), 0);
     const warnings = [];
     legs.forEach((l, i) => {
-      if (l.short) warnings.push({ cls: 'red', text: `L${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
-      if (l.empty) warnings.push({ cls: 'amber', text: `L${i + 1} has no length.` });
+      if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
+      if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
     });
     st.bends.forEach((b, i) => {
       const a = clampAngle(b.a);
-      if (a > HOOK_WARN_ABOVE && a < 180) warnings.push({ cls: 'amber', text: `B${i + 1} = ${a}° has no usable virtual corner. Use ${HOOK_WARN_ABOVE}° or less, or 180°.` });
+      if (a > HOOK_WARN_ABOVE && a < 180) warnings.push({ cls: 'amber', text: `Bend ${i + 1} = ${fmtA(a)}° has no usable virtual corner. Use ${HOOK_WARN_ABOVE}° or less, or 180°.` });
     });
     if (!st.cut && st.legs.length) warnings.push({ cls: 'amber', text: 'Shape is not cut yet.' });
-    return { d, pin, Ro, R, setbacks, legs, developed, warnings };
+    return { d, pin, Ro, R, setbacks, legs, developed, overall, warnings, startTreat, endTreat, seg1 };
   }
 
-  // Walk the shape as a turtle in maths coordinates (y up). Drawn from the last
-  // entered leg heading right, matching the machine HMI; "up" bends turn anticlockwise.
-  function buildPath(an, scale, minPx) {
-    const n = st.legs.length;
-    const halfW = an.d * scale / 2;
-    const r = an.R * scale;
+  // Walk the shape as a turtle in maths coordinates (y up).
+  // 'standard': from the start of bar, Segment 1 ends up on the X axis heading right; up bends turn clockwise.
+  // 'machine':  from the last segment heading right, as the machine screen draws it; up bends turn anticlockwise.
+  function buildPath(an, scale, minPx, mode) {
+    const n = st.legs.length, fwd = mode === 'standard';
+    const halfW = an.d * scale / 2, rb = an.R * scale;
+    const turn = v => (fwd ? -1 : 1) * v;   // v = +1 for anything clockwise-forward (up bend, positive radius)
     let x = 0, y = 0, phi = 0;
     const pieces = [];
+    const arcPiece = (type, i, R, t, sweep, extra) => {
+      const cx = x + R * Math.cos(phi + t * Math.PI / 2), cy = y + R * Math.sin(phi + t * Math.PI / 2);
+      const a0 = phi - t * Math.PI / 2;
+      const steps = Math.max(2, Math.ceil(sweep / rad(ARC_STEP_DEG)));
+      const pts = [];
+      for (let j = 0; j <= steps; j++) {
+        const a = a0 + t * sweep * j / steps;
+        pts.push([cx + R * Math.cos(a), cy + R * Math.sin(a)]);
+      }
+      const am = a0 + t * sweep / 2;
+      pieces.push(Object.assign({ type, i, c: [cx, cy], r: R, pts, phiIn: phi, out: [Math.cos(am), Math.sin(am)] }, extra));
+      phi += t * sweep;
+      [x, y] = pts[pts.length - 1];
+    };
     for (let k = 0; k < n; k++) {
-      const i = n - 1 - k;
+      const i = fwd ? k : n - 1 - k;
       const leg = an.legs[i];
-      let len = Math.max(0, leg.S) * scale, clamped = false;
-      if (leg.S > 0 && len < minPx) { len = minPx; clamped = true; }
-      const p0 = [x, y];
-      x += len * Math.cos(phi); y += len * Math.sin(phi);
-      pieces.push({ type: 'leg', i, p0, p1: [x, y], dir: [Math.cos(phi), Math.sin(phi)], clamped });
-      if (i > 0) {
-        const b = st.bends[i - 1];
-        const aDeg = clampAngle(b.a), theta = rad(aDeg);
-        const s = b.d >= 0 ? 1 : -1;
-        const cx = x + r * Math.cos(phi + s * Math.PI / 2), cy = y + r * Math.sin(phi + s * Math.PI / 2);
-        const a0 = phi - s * Math.PI / 2;
-        const steps = Math.max(2, Math.ceil(aDeg / ARC_STEP_DEG));
-        const pts = [];
-        for (let j = 0; j <= steps; j++) {
-          const a = a0 + s * theta * j / steps;
-          pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
-        }
-        const am = a0 + s * theta / 2;
-        pieces.push({ type: 'arc', i: i - 1, c: [cx, cy], r, pts, aDeg, out: [Math.cos(am), Math.sin(am)] });
-        phi += s * theta;
-        [x, y] = pts[pts.length - 1];
+      const S = Math.max(0, leg.S);
+      if (leg.arc) {
+        const Rm = Math.abs(leg.r);
+        arcPiece('arcseg', i, Rm * scale, turn(Math.sign(leg.r)), S / Rm, { L: leg.L });
+      } else {
+        let len = S * scale, clamped = false;
+        if (S > 0 && len < minPx) { len = minPx; clamped = true; }
+        const p0 = [x, y];
+        x += len * Math.cos(phi); y += len * Math.sin(phi);
+        pieces.push({ type: 'leg', i, p0, p1: [x, y], dir: [Math.cos(phi), Math.sin(phi)], phiIn: phi, clamped });
+      }
+      const bi = fwd ? i : i - 1;   // bend that follows this segment in walking order
+      if (bi >= 0 && bi < st.bends.length) {
+        const b = st.bends[bi], aDeg = clampAngle(b.a);
+        if (aDeg > 0) arcPiece('arc', bi, rb, turn(b.d >= 0 ? 1 : -1), rad(aDeg), { aDeg });
       }
     }
-    return { pieces, halfW };
+    // rotate so Segment 1 (standard) lies on the X axis
+    let baseRot = 0;
+    if (fwd) {
+      const p = pieces.find(pc => pc.i === an.seg1 && (pc.type === 'leg' || pc.type === 'arcseg'));
+      if (p) {
+        if (p.type === 'leg') baseRot = -Math.atan2(p.dir[1], p.dir[0]);
+        else { const a = p.pts[0], b = p.pts[p.pts.length - 1]; baseRot = -Math.atan2(b[1] - a[1], b[0] - a[0]); }  // chord on the X axis
+      }
+    }
+    return { pieces, halfW, baseRot };
   }
 
-  function viewXform() {
-    const k = ((st.rot % 4) + 4) % 4, c = [1, 0, -1, 0][k], s = [0, 1, 0, -1][k], m = st.mirror ? -1 : 1;
-    return p => { const x = p[0] * m, y = p[1]; return [c * x - s * y, s * x + c * y]; };
-  }
+  const rotFn = ang => { const c = Math.cos(ang), s = Math.sin(ang); return p => [c * p[0] - s * p[1], s * p[0] + c * p[1]]; };
 
   function outlineBox(path, T) {
     const { pieces, halfW } = path;
@@ -314,6 +348,51 @@
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
+  // Validation offsets per Shape Definition Standard 4.2: Segment 1 on the straight edge, X along it and Y off it,
+  // from the bend at the end of Segment 1, to the virtual corner for bends of 90 or less and to the outside of the
+  // bar for bends over 90. Hooks and cogs get none.
+  function offsets(an) {
+    const n = st.legs.length;
+    const ref = an.seg1, last = an.endTreat ? n - 3 : n - 2;
+    if (ref >= st.bends.length || last <= ref) return [];
+    const path = buildPath(an, 1, 0, 'standard');
+    const T = rotFn(path.baseRot);
+    const arcs = {};
+    for (const pc of path.pieces) if (pc.type === 'arc') arcs[pc.i] = pc;
+    const seg1 = path.pieces.find(pc => pc.i === ref && pc.type !== 'arc');
+    if (!seg1 || !arcs[ref]) return [];
+    const ratio = an.Ro / an.R;
+    const corner = pc => {
+      const a = rad(pc.aDeg);
+      if (pc.aDeg >= 180) return null;
+      const p0 = pc.pts[0], t = an.R * Math.tan(a / 2);
+      const cl = [p0[0] + t * Math.cos(pc.phiIn), p0[1] + t * Math.sin(pc.phiIn)];
+      return T([pc.c[0] + (cl[0] - pc.c[0]) * ratio, pc.c[1] + (cl[1] - pc.c[1]) * ratio]);
+    };
+    const outer = pc => pc.pts.map(p => T([pc.c[0] + (p[0] - pc.c[0]) * ratio, pc.c[1] + (p[1] - pc.c[1]) * ratio]));
+    const refC = T(arcs[ref].c);
+    const segY = T(seg1.type === 'leg' ? seg1.p0 : seg1.pts[0])[1];
+    const edgeY = segY - Math.sign(refC[1] - segY) * an.d / 2;   // straight edge is the face away from the bends
+    const oc = corner(arcs[ref]);
+    const ox = oc ? oc[0] : Math.max(...outer(arcs[ref]).map(p => p[0]));
+    const rows = [];
+    for (let k = ref + 1; k <= last; k++) {
+      const pc = arcs[k];
+      if (!pc) continue;
+      let X, Y;
+      if (pc.aDeg <= 90) {
+        const p = corner(pc);
+        X = Math.abs(p[0] - ox); Y = Math.abs(p[1] - edgeY);
+      } else {
+        const op = outer(pc);
+        X = Math.max(...op.map(p => Math.abs(p[0] - ox)));
+        Y = Math.max(...op.map(p => Math.abs(p[1] - edgeY)));
+      }
+      rows.push({ bend: k + 1, X, Y, tangent: pc.aDeg > 90 });
+    }
+    return rows;
+  }
+
   // ---------- drawing ----------
   const svg = $('#svg'), g = $('#g');
   const el = (name, attrs, text) => {
@@ -333,13 +412,14 @@
     $('#empty').hidden = hasShape;
     if (!hasShape) return { w: 0, h: 0 };
 
-    const T = viewXform();
-    const pad = 88, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
-    const trueBox = outlineBox(buildPath(an, 1, 0), T);
+    const pad = 100, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
+    const truePath = buildPath(an, 1, 0, st.view);
+    const T = rotFn(truePath.baseRot + st.rot * Math.PI / 2);
+    const trueBox = outlineBox(truePath, T);
     let scale = Math.min(availW / (trueBox.w || 1), availH / (trueBox.h || 1));
     let path, box;
     for (let iter = 0; iter < 6; iter++) {
-      path = buildPath(an, scale, MIN_PX);
+      path = buildPath(an, scale, MIN_PX, st.view);
       box = outlineBox(path, T);
       if (box.w <= availW + .5 && box.h <= availH + .5) break;
       scale *= Math.min(availW / box.w, availH / box.h) * 0.985;
@@ -353,7 +433,7 @@
     const pts = [];
     for (const pc of path.pieces) {
       if (pc.type === 'leg') { if (!pts.length) pts.push(S(pc.p0)); pts.push(S(pc.p1)); }
-      else for (const q of pc.pts.slice(1)) pts.push(S(q));
+      else { if (!pts.length) pts.push(S(pc.pts[0])); for (const q of pc.pts.slice(1)) pts.push(S(q)); }
     }
     g.appendChild(el('polyline', {
       points: pts.map(p => p.map(v => v.toFixed(2)).join(',')).join(' '),
@@ -373,7 +453,7 @@
         // side: away from the centre of the neighbouring bend(s); if they disagree, away from the shape centre
         let n = [-d[1], d[0]], vote = 0;
         for (const nb of [path.pieces[k - 1], path.pieces[k + 1]]) {
-          if (!nb || nb.type !== 'arc') continue;
+          if (!nb || nb.type === 'leg') continue;
           const c = S(nb.c);
           vote += Math.sign((m[0] - c[0]) * n[0] + (m[1] - c[1]) * n[1]);
         }
@@ -383,14 +463,20 @@
         if (pc.clamped) lastClamped.add(pc.i);
         g.appendChild(el('text', {
           x: (m[0] + n[0] * off).toFixed(1), y: (m[1] + n[1] * off).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
-          class: 'leg' + (leg.short ? ' red' : pc.clamped ? ' amber' : ''),
+          class: 'leg' + (an.legs[pc.i].short ? ' red' : pc.clamped ? ' amber' : ''),
         }, text));
+      } else if (pc.type === 'arcseg') {
+        const leg = an.legs[pc.i];
+        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
+        const lx = c[0] + o[0] * dist, ly = c[1] + o[1] * dist;
+        g.appendChild(el('text', { x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'leg' + (leg.short ? ' red' : '') }, fmt(leg.L)));
+        g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(Math.abs(leg.r))}`));
       } else if (pc.aDeg !== 90) {
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
         g.appendChild(el('text', {
           x: (c[0] + o[0] * dist).toFixed(1), y: (c[1] + o[1] * dist).toFixed(1),
           'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang',
-        }, `${pc.aDeg}°`));
+        }, `${fmtA(pc.aDeg)}°`));
       }
     });
 
@@ -409,43 +495,48 @@
   }
 
   function renderStats(an, box) {
-    const cutState = st.cut ? 'Cut' : 'Open';
     const rows = [
-      ['Developed length', fmt(an.developed) + ' mm'],
+      ['Length overall', fmt(an.overall) + ' mm'],
+      ['Cut length', fmt(an.developed) + ' mm'],
       ['Overall', `${fmt(box.w)} × ${fmt(box.h)} mm`],
       ['Bends', String(st.bends.length)],
       ['Bend radius', `Ro ${fmt(an.Ro)} · CL ${fmt(an.R)} mm`],
-      ['Status', cutState],
+      ['Status', st.cut ? 'Cut' : 'Open'],
     ];
     let h = rows.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+    const off = offsets(an);
+    if (off.length) {
+      h += `<div class="wide"><div class="k">Validation offsets from bend ${an.seg1 + 1}, segment ${an.seg1 + 1} on the straight edge</div>
+        <table class="off"><tr><td></td><td>X</td><td>Y</td></tr>${off.map(o => `<tr><td>Bend ${o.bend}${o.tangent ? ' (outside of bar)' : ''}</td><td>${fmt(o.X)}</td><td>${fmt(o.Y)}</td></tr>`).join('')}</table></div>`;
+    }
     const w = an.warnings.slice();
-    if (lastClamped.size) w.push({ cls: 'amber', text: `Amber legs are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'L' + (i + 1)).join(', ')}).` });
+    if (lastClamped.size) w.push({ cls: 'amber', text: `Amber segments are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'segment ' + (i + 1)).join(', ')}).` });
     if (w.length) h += `<div id="warnings">${w.map(x => `<div class="${x.cls}">${x.text}</div>`).join('')}</div>`;
     $('#stats').innerHTML = h;
   }
 
   // ---------- entry table ----------
   function renderTable() {
-    let h = `<thead><tr><td></td><td>Length</td><td></td><td class="bend">Angle</td><td></td><td></td><td></td></tr></thead><tbody>`;
+    let h = `<thead><tr><td></td><td>Segment</td><td></td><td class="bend">Bend</td><td></td><td></td><td></td></tr></thead><tbody>`;
     st.legs.forEach((L, i) => {
       const last = i === st.legs.length - 1;
       let bendCells;
       if (!last) {
         const b = st.bends[i];
-        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="1" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
+        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="0" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
           <td class="unit">°</td>
           <td class="dircell"><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction: ${b.d > 0 ? 'up' : 'down'}">${b.d > 0 ? '▲' : '▼'}</button></td>`;
       } else if (st.cut) {
         bendCells = `<td class="bend cutcell" colspan="3">✂ Cut</td>`;
       } else {
-        bendCells = `<td class="bend cutcell" colspan="3"><button data-act="addBend" title="Add a bend after this leg">+ Bend</button> <button data-act="cut" title="Cut after this leg">✂ Cut</button></td>`;
+        bendCells = `<td class="bend cutcell" colspan="3"><button data-act="addBend" title="Add a bend after this segment">+ Bend</button> <button data-act="cut" title="Cut after this segment">✂ Cut</button></td>`;
       }
       h += `<tr class="leg" data-i="${i}">
         <td class="n">${i + 1}</td>
         <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="length"><div class="info" data-info="${i}"></div></td>
         <td class="unit">mm</td>
         ${bendCells}
-        <td class="act"><button title="Insert a leg after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this leg and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
+        <td class="act"><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
       </tr>`;
     });
     h += '</tbody>';
@@ -453,14 +544,20 @@
   }
 
   function updateInfos(an) {
+    const n = an.legs.length;
     an.legs.forEach((l, i) => {
       const td = document.querySelector(`[data-info="${i}"]`);
       if (!td) return;
       td.className = 'info';
       if (l.empty) { td.textContent = ''; return; }
-      if (l.short) { td.classList.add('red'); td.textContent = `min ${fmt(l.min)}`; return; }
-      if (lastClamped.has(i)) td.classList.add('amber');
-      td.textContent = `straight ${fmt(l.S)}`;
+      const bits = [];
+      if (l.arc) bits.push(`arc R ${fmt(Math.abs(l.r))}`);
+      if (i === 0 && an.startTreat) bits.push(clampAngle(st.bends[0].a) >= 135 ? 'start hook' : 'start cog');
+      if (i === n - 1 && an.endTreat) bits.push(clampAngle(st.bends[n - 2].a) >= 135 ? 'end hook' : 'end cog');
+      if (i === an.seg1) bits.push('segment 1');
+      if (l.short) { td.classList.add('red'); bits.push(`min ${fmt(l.min)}`); }
+      else { if (lastClamped.has(i)) td.classList.add('amber'); bits.push(`straight ${fmt(l.S)}`); }
+      td.textContent = bits.join(' · ');
     });
   }
 
@@ -475,26 +572,49 @@
     if (b) { b.className = 'dir ' + (d > 0 ? 'up' : 'down'); b.textContent = d > 0 ? '▲' : '▼'; b.title = 'Bend direction: ' + (d > 0 ? 'up' : 'down'); }
   }
 
-  // ---------- serialisation ----------
+  // ---------- serialisation (NSS per Shape Definition Standard) ----------
+  const numStr = v => (Math.round(v * 1000) / 1000).toString();
   function toCode() {
     const parts = [];
     st.legs.forEach((L, i) => {
-      parts.push(L == null ? '_' : String(L));
-      if (i < st.bends.length) parts.push(`${clampAngle(st.bends[i].a)}${st.bends[i].d > 0 ? 'u' : 'd'}`);
+      const r = st.radii[i];
+      if (r != null && r !== 0) parts.push('r' + numStr(r));
+      parts.push('l' + (L == null ? '0' : numStr(L)));
+      if (i < st.bends.length) parts.push('w' + numStr(clampAngle(st.bends[i].a) * (st.bends[i].d > 0 ? 1 : -1)));
     });
-    if (st.cut) parts.push('C');
-    return parts.join(' ');
+    return parts.join(',');
   }
+  // Accepts NSS (l250,w-135,l1000) and the earlier space-separated form (250 135d 1000 90u 500 C).
   function parseCode(code) {
     const toks = String(code).trim().split(/[\s,]+/).filter(Boolean);
-    const legs = [], bends = [];
+    if (!toks.length) return null;
+    const legs = [], radii = [], bends = [];
+    if (/^[lwr]/i.test(toks[0])) {
+      let pendingR = null;
+      for (const t0 of toks) {
+        const m = t0.match(/^([lwr])(-?\d+(?:\.\d+)?)$/i);
+        if (!m) return null;
+        const k = m[1].toLowerCase(), v = +m[2];
+        if (k === 'r') { pendingR = v; continue; }
+        if (k === 'l') {
+          if (legs.length > bends.length) bends.push({ a: 0, d: 1 });   // two segments with no bend between: tangent join
+          legs.push(v > 0 ? v : null); radii.push(pendingR); pendingR = null;
+        } else {
+          if (legs.length === bends.length) return null;                 // bend before any segment
+          bends.push({ a: clampAngle(Math.abs(v)), d: v < 0 ? -1 : 1 });
+        }
+      }
+      if (legs.length === bends.length) legs.push(null), radii.push(null);
+      return { legs, radii, bends, cut: true };
+    }
     let cut = false;
-    for (let k = 0; k < toks.length; k++) {
-      const t = toks[k].toLowerCase();
+    for (const t0 of toks) {
+      const t = t0.toLowerCase();
       if (t === 'c' || t === 'cut') { cut = true; break; }
       if (legs.length === bends.length) {
-        legs.push(t === '_' ? null : num(t));
-        if (legs[legs.length - 1] === undefined) return null;
+        const v = t === '_' ? null : num(t);
+        if (v === undefined) return null;
+        legs.push(v); radii.push(null);
       } else {
         const m = t.match(/^(\d+(?:\.\d+)?)([ud]?)$/);
         if (!m) return null;
@@ -502,19 +622,19 @@
       }
     }
     if (!legs.length) return null;
-    if (legs.length === bends.length) legs.push(null);
-    return { legs, bends, cut };
+    if (legs.length === bends.length) legs.push(null), radii.push(null);
+    return { legs, radii, bends, cut };
   }
   function toJSON() {
     return JSON.stringify({
+      standard: 'IBR-SDS-001',
       gauge: st.gauge, pin: st.pin,
-      legs: st.legs, bends: st.bends.map(b => ({ angle: clampAngle(b.a), dir: b.d > 0 ? 'up' : 'down' })),
+      segments: st.legs.map((L, i) => st.radii[i] ? { length: L, radius: st.radii[i] } : { length: L }),
+      bends: st.bends.map(b => ({ angle: clampAngle(b.a) * (b.d > 0 ? 1 : -1), direction: b.d > 0 ? 'up' : 'down' })),
       cut: st.cut, code: toCode(),
     }, null, 2);
   }
-  function toHash() {
-    return `#g=${st.gauge}&p=${st.pin}&s=${encodeURIComponent(toCode())}`;
-  }
+  const toHash = () => `#g=${st.gauge}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}&s=${encodeURIComponent(toCode())}`;
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
@@ -524,6 +644,7 @@
     if (num(q.get('g'))) st.gauge = num(q.get('g'));
     if (num(q.get('p'))) { st.pin = num(q.get('p')); st.pinAuto = st.pin === st.gauge * PIN_RATIO; }
     else st.pin = st.gauge * PIN_RATIO;
+    st.view = q.get('v') === 'm' ? 'machine' : 'standard';
     return true;
   }
 
@@ -534,6 +655,8 @@
     renderStats(an, box);
     updateInfos(an);
     $('#code').value = toCode();
+    $('#viewStd').classList.toggle('on', st.view === 'standard');
+    $('#viewMach').classList.toggle('on', st.view === 'machine');
     try { history.replaceState(null, '', toHash()); } catch (e) { /* sandboxed host: link sharing unavailable */ }
   }
   function rebuild(focus) {
@@ -560,7 +683,7 @@
         e.preventDefault();
         if (i < st.legs.length - 1) return focusInput('ang', i, true);
         if (st.cut || st.legs[i] == null) return;
-        st.bends.push({ a: 90, d: 1 }); st.legs.push(null);
+        st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.radii.push(null);
         rebuild({ kind: 'ang', i, select: true });
       } else if ((e.key === 'c' || e.key === 'C') && i === st.legs.length - 1 && !st.cut) {
         e.preventDefault();
@@ -580,13 +703,13 @@
     const i = +btn.dataset.i, act = btn.dataset.act;
     switch (act) {
       case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
-      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
+      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.radii.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
       case 'delRow':
-        if (st.legs.length === 1) { st.legs = [null]; st.bends = []; st.cut = false; }
-        else if (i < st.bends.length) { st.legs.splice(i, 1); st.bends.splice(i, 1); }
-        else { st.legs.splice(i, 1); st.bends.splice(i - 1, 1); }
+        if (st.legs.length === 1) { st.legs = [null]; st.radii = [null]; st.bends = []; st.cut = false; }
+        else if (i < st.bends.length) { st.legs.splice(i, 1); st.radii.splice(i, 1); st.bends.splice(i, 1); }
+        else { st.legs.splice(i, 1); st.radii.splice(i, 1); st.bends.splice(i - 1, 1); }
         rebuild({ kind: 'len', i: Math.min(i, st.legs.length - 1) }); break;
-      case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
+      case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.radii.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
       case 'cut': st.cut = true; rebuild(); break;
       case 'uncut': st.cut = false; rebuild({ kind: 'len', i: st.legs.length - 1 }); break;
     }
@@ -601,11 +724,12 @@
   });
   pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
   $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
-  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
-  $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); rebuild(); });
-  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.bends.reverse(); rebuild(); });
+  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.radii = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
+  $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); st.radii = st.radii.map(r => r == null ? null : -r); rebuild(); });
+  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.radii.reverse(); st.bends.reverse(); rebuild(); });
   $('#rotate').addEventListener('click', () => { st.rot = (st.rot + 1) % 4; onChange(); });
-  $('#mirror').addEventListener('click', () => { st.mirror = !st.mirror; onChange(); });
+  $('#viewStd').addEventListener('click', () => { st.view = 'standard'; st.rot = 0; onChange(); });
+  $('#viewMach').addEventListener('click', () => { st.view = 'machine'; st.rot = 0; onChange(); });
 
   $('#loadCode').addEventListener('click', () => {
     const parsed = parseCode($('#code').value);
