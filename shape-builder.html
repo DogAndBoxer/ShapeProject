@@ -71,6 +71,8 @@
     flex-direction: column;
   }
   #entry { padding: 12px; }
+  #entry .tools { display: flex; gap: 6px; padding: 0 0 10px; }
+  #entry .tools button { font-size: 13px; }
   #entry .hint { color: var(--muted); font-size: 12px; padding: 10px 4px 2px; border-top: 1px solid var(--line); margin-top: auto; }
   #entry .hint kbd {
     font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border: 1px solid var(--line);
@@ -159,6 +161,10 @@
 
 <main>
   <section id="entry">
+    <div class="tools">
+      <button id="flipBends" title="Swap up and down on every bend">⇅ Flip bends</button>
+      <button id="reverseOrder" title="Enter the shape from the other end: last leg becomes first">⇄ Reverse order</button>
+    </div>
     <table id="rows"></table>
     <div class="hint">
       <kbd>Enter</kbd> next field &nbsp; <kbd>C</kbd> in the last length cuts &nbsp; <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Space</kbd> set bend direction
@@ -596,6 +602,8 @@
   pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
   $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
   $('#newShape').addEventListener('click', () => { st.legs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
+  $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); rebuild(); });
+  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.bends.reverse(); rebuild(); });
   $('#rotate').addEventListener('click', () => { st.rot = (st.rot + 1) % 4; onChange(); });
   $('#mirror').addEventListener('click', () => { st.mirror = !st.mirror; onChange(); });
 
