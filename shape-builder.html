@@ -53,7 +53,7 @@
   button.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
   main {
     display: grid;
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: 440px 1fr;
     gap: 16px;
     padding: 16px 18px;
     flex: 1;
@@ -77,16 +77,16 @@
     font: 11px/1 ui-monospace, monospace; padding: 2px 5px; border: 1px solid var(--line);
     border-bottom-width: 2px; border-radius: 4px; background: #f9fafb;
   }
-  table#rows { border-collapse: collapse; width: 100%; }
+  table#rows { border-collapse: collapse; width: 100%; table-layout: fixed; }
   #rows td { padding: 4px 4px; vertical-align: middle; }
   #rows thead td { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
   #rows tr.leg td:first-child { font-weight: 650; color: var(--ink); }
-  #rows td.n { width: 34px; white-space: nowrap; }
-  #rows td.unit { color: var(--muted); width: 26px; padding-left: 0; }
+  #rows td.n { white-space: nowrap; }
+  #rows td.unit { color: var(--muted); padding-left: 0; }
   #rows td.bend { padding-left: 10px; border-left: 1px solid var(--line); }
-  #rows td.dircell { width: 44px; }
-  #rows td.act { text-align: right; white-space: nowrap; width: 62px; }
-  #rows td.act button { padding: 2px 8px; margin-left: 3px; color: var(--muted); }
+
+  #rows td.act { text-align: right; white-space: nowrap; }
+  #rows td.act button { padding: 2px 7px; margin-left: 2px; color: var(--muted); }
   #rows td.act button:hover { color: var(--ink); }
   #rows input[type=number] {
     width: 92px; font-size: 17px; padding: 5px 8px;
@@ -95,7 +95,7 @@
   }
   #rows input[data-kind=ang] { width: 66px; }
   #rows input:focus { border-color: var(--accent); outline: 2px solid #bfdbfe; }
-  #rows .info { color: var(--muted); font-size: 11px; white-space: nowrap; line-height: 1.2; padding: 2px 0 0 2px; min-height: 14px; }
+  #rows .info { color: var(--muted); font-size: 11px; white-space: nowrap; line-height: 1.2; padding: 2px 0 0 2px; min-height: 14px; overflow: visible; }
   #rows .info.red { color: var(--red); font-weight: 600; }
   #rows .info.amber { color: var(--amber); }
   #rows button.dir { width: 40px; padding: 5px 0; text-align: center; font-size: 15px; }
@@ -103,6 +103,13 @@
   #rows button.dir.down { color: #7c2d12; }
   #rows td.cutcell { font-weight: 600; white-space: nowrap; }
   #rows td.cutcell button { padding: 4px 9px; }
+  #rows button.arcbtn.on { background: var(--accent); color: var(--accent-ink) !important; border-color: var(--accent); }
+  #rows tr.arcrow td { padding-top: 0; padding-bottom: 8px; }
+  #rows .arcfields { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; font-size: 12px; color: var(--muted); }
+  #rows .arcfields label { display: inline-flex; align-items: center; gap: 4px; }
+  #rows .arcfields input[type=number] { width: 66px; font-size: 13px; padding: 3px 5px; }
+  #rows .arcfields input::placeholder { color: #9ca3af; }
+  #rows .arcfields button.dir { width: 32px; padding: 3px 0; font-size: 13px; }
   #view { position: relative; }
   #view svg { width: 100%; height: max(380px, calc(100vh - 360px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
   #view .toolbar { position: absolute; top: 10px; right: 10px; display: flex; gap: 6px; }
@@ -220,7 +227,7 @@
   const st = {
     gauge: 12, pin: 48, pinAuto: true,
     legs: [250, 1000, 500],      // out-to-out segment lengths (arc length for arc segments)
-    radii: [null, null, null],   // null = straight; signed radius, clockwise positive, for arc segments
+    arcs: [null, null, null],    // null = straight; else {Ro, chord, drop, angle, d}: typed values (null = blank), d = +1 clockwise forward
     bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],  // a = bend angle, d = +1 up (clockwise forward), -1 down
     cut: true,
     view: 'standard', rot: 0,
@@ -233,6 +240,34 @@
   const fmt = v => String(Math.round(v));
   const fmtA = a => (Math.round(a * 100) / 100).toString();
 
+  // Solve an arc from whichever pair of values is typed. Ro is the outside radius, SL the cut length on the
+  // centreline, chord and drop on the outside face. Returns null when fewer than two usable values exist.
+  const ARC_PAIRS = [['Ro', 'SL'], ['Ro', 'angle'], ['Ro', 'chord'], ['chord', 'drop'], ['chord', 'angle'], ['drop', 'angle'], ['SL', 'angle']];
+  function solveArc(a, SL, d) {
+    const v = { Ro: a.Ro, chord: a.chord, drop: a.drop, angle: a.angle, SL };
+    const pair = ARC_PAIRS.find(([x, y]) => v[x] > 0 && v[y] > 0);
+    if (!pair) return null;
+    let R, th;
+    const key = pair.join('+');
+    if (key === 'Ro+SL') { R = v.Ro; th = v.SL / (v.Ro - d / 2); }
+    else if (key === 'Ro+angle') { R = v.Ro; th = rad(v.angle); }
+    else if (key === 'Ro+chord') { R = v.Ro; th = 2 * Math.asin(Math.min(1, v.chord / (2 * R))); if (v.drop > R) th = 2 * Math.PI - th; }
+    else if (key === 'chord+drop') { R = v.chord * v.chord / (8 * v.drop) + v.drop / 2; th = 2 * Math.asin(Math.min(1, v.chord / (2 * R))); if (v.drop > R) th = 2 * Math.PI - th; }
+    else if (key === 'chord+angle') { th = rad(v.angle); R = v.chord / (2 * Math.sin(th / 2)); }
+    else if (key === 'drop+angle') { th = rad(v.angle); R = v.drop / (1 - Math.cos(th / 2)); }
+    else { th = rad(v.angle); R = v.SL / th + d / 2; }
+    const Rcl = R - d / 2;
+    if (!(Rcl > 0) || !(th > 0)) return { bad: true, used: pair };
+    const calc = { Ro: R, SL: Rcl * th, chord: 2 * R * Math.sin(th / 2), drop: R * (1 - Math.cos(th / 2)), angle: th * 180 / Math.PI };
+    const mismatch = [];
+    for (const k of Object.keys(calc)) {
+      if (pair.includes(k) || !(v[k] > 0)) continue;
+      const tol = k === 'angle' ? 0.5 : 1;
+      if (Math.abs(v[k] - calc[k]) > tol) mismatch.push({ k, typed: v[k], calc: calc[k] });
+    }
+    return { Ro: R, Rcl, th, used: pair, calc, mismatch };
+  }
+
   function analyse() {
     const d = st.gauge || 0, pin = st.pin || 0, n = st.legs.length;
     const Ro = pin / 2 + d;        // outside radius of the bend
@@ -241,12 +276,18 @@
       const a = clampAngle(b.a);
       return a >= 180 ? Ro : Ro * Math.tan(rad(a) / 2);
     });
-    const legs = st.legs.map((L, i) => {
+    const legs = st.legs.map((L0, i) => {
       const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
+      const a = st.arcs[i];
+      let L = L0, sol = null, r = null;
+      if (a) {
+        sol = solveArc(a, L0, d);
+        if (sol && !sol.bad) { L = L0 ?? sol.calc.SL; r = (a.d >= 0 ? 1 : -1) * sol.Rcl; }
+        else L = null;
+      }
       const empty = L == null;
       const S = (empty ? 0 : L) - min;
-      const r = st.radii[i];
-      return { L, min, S, empty, short: !empty && S < 0, arc: r != null && r !== 0, r };
+      return { L, min, S, empty, short: !empty && S < 0, arc: !!a, r, sol, Ro: sol && !sol.bad ? sol.Ro : null };
     });
     // Start and end treatments (hooks and cogs): an end segment whose bend is 90 or more and which is
     // shorter than the segment it joins. Segment 1 is the first segment that is not a treatment.
@@ -260,7 +301,10 @@
     const warnings = [];
     legs.forEach((l, i) => {
       if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
-      if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
+      if (l.arc && l.sol && l.sol.bad) warnings.push({ cls: 'red', text: `Segment ${i + 1}: arc radius is smaller than the bar, or the values do not make an arc.` });
+      else if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs two of outside radius, cut length, chord, drop, angle.` });
+      else if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
+      if (l.sol && l.sol.mismatch) for (const m of l.sol.mismatch) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: ${m.k === 'SL' ? 'cut length' : m.k === 'Ro' ? 'outside radius' : m.k} on the drawing is ${fmtA(m.typed)}, calculated ${fmtA(m.calc)} from ${l.sol.used.map(k => k === 'SL' ? 'cut length' : k === 'Ro' ? 'radius' : k).join(' and ')}.` });
     });
     st.bends.forEach((b, i) => {
       const a = clampAngle(b.a);
@@ -319,7 +363,10 @@
       const p = pieces.find(pc => pc.i === an.seg1 && (pc.type === 'leg' || pc.type === 'arcseg'));
       if (p) {
         if (p.type === 'leg') baseRot = -Math.atan2(p.dir[1], p.dir[0]);
-        else { const a = p.pts[0], b = p.pts[p.pts.length - 1]; baseRot = -Math.atan2(b[1] - a[1], b[0] - a[0]); }  // chord on the X axis
+        else {
+          const a = p.pts[0], b = p.pts[p.pts.length - 1];
+          baseRot = Math.hypot(b[0] - a[0], b[1] - a[1]) > 1e-6 ? -Math.atan2(b[1] - a[1], b[0] - a[0]) : -p.phiIn;  // chord on the X axis; a closed ring has none
+        }
       }
     }
     return { pieces, halfW, baseRot };
@@ -492,7 +539,7 @@
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
         const lx = c[0] + o[0] * dist, ly = c[1] + o[1] * dist;
         g.appendChild(el('text', { x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'leg' + (leg.short ? ' red' : '') }, fmt(leg.L)));
-        g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(Math.abs(leg.r))}`));
+        g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(leg.Ro)} out`));
       } else if (pc.aDeg !== 90) {
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
         g.appendChild(el('text', {
@@ -531,6 +578,8 @@
       h += `<div class="wide"><div class="k">Validation offsets from bend ${an.seg1 + 1}, segment ${an.seg1 + 1} on the straight edge</div>
         <table class="off"><tr><td></td><td>X</td><td>Y</td></tr>${off.map(o => `<tr><td>Bend ${o.bend}${o.tangent ? ' (outside of bar)' : ''}</td><td>${fmt(o.X)}</td><td>${fmt(o.Y)}</td></tr>`).join('')}</table></div>`;
     }
+    const arcRows = an.legs.map((l, i) => l.sol && !l.sol.bad ? `<tr><td>Segment ${i + 1}</td><td>${fmt(l.sol.Ro)}</td><td>${fmt(l.sol.calc.SL)}</td><td>${fmt(l.sol.calc.chord)}</td><td>${fmt(l.sol.calc.drop)}</td><td>${fmtA(l.sol.calc.angle)}°</td></tr>` : '').join('');
+    if (arcRows) h += `<div class="wide"><div class="k">Arc segments (outside face)</div><table class="off"><tr><td></td><td>R out</td><td>Cut length</td><td>Chord</td><td>Drop</td><td>Angle</td></tr>${arcRows}</table></div>`;
     const w = an.warnings.slice();
     if (lastClamped.size) w.push({ cls: 'amber', text: `Amber segments are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'segment ' + (i + 1)).join(', ')}).` });
     if (w.length) h += `<div id="warnings">${w.map(x => `<div class="${x.cls}">${x.text}</div>`).join('')}</div>`;
@@ -539,7 +588,8 @@
 
   // ---------- entry table ----------
   function renderTable() {
-    let h = `<thead><tr><td></td><td>Segment</td><td></td><td class="bend">Bend</td><td></td><td></td><td></td></tr></thead><tbody>`;
+    let h = `<colgroup><col style="width:30px"><col style="width:104px"><col style="width:30px"><col style="width:84px"><col style="width:18px"><col style="width:44px"><col></colgroup>
+      <thead><tr><td></td><td>Segment</td><td></td><td class="bend">Bend</td><td></td><td></td><td></td></tr></thead><tbody>`;
     st.legs.forEach((L, i) => {
       const last = i === st.legs.length - 1;
       let bendCells;
@@ -553,13 +603,21 @@
       } else {
         bendCells = `<td class="bend cutcell" colspan="3"><button data-act="addBend" title="Add a bend after this segment">+ Bend</button> <button data-act="cut" title="Cut after this segment">✂ Cut</button></td>`;
       }
-      h += `<tr class="leg" data-i="${i}">
+      const a = st.arcs[i];
+      h += `<tr class="leg${a ? ' isarc' : ''}" data-i="${i}">
         <td class="n">${i + 1}</td>
-        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="length"><div class="info" data-info="${i}"></div></td>
+        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="${a ? 'cut length' : 'length'}"><div class="info" data-info="${i}"></div></td>
         <td class="unit">mm</td>
         ${bendCells}
-        <td class="act"><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
+        <td class="act"><button class="arcbtn${a ? ' on' : ''}" title="${a ? 'Make this a straight segment' : 'Make this an arc segment'}" data-act="arc" data-i="${i}">⌒</button><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
       </tr>`;
+      if (a) {
+        const f = (k, label, unit) => `<label>${label} <input type="number" inputmode="decimal" min="0" step="1" data-kind="${k}" data-i="${i}" value="${a[k] ?? ''}"><span>${unit}</span></label>`;
+        h += `<tr class="arcrow" data-i="${i}"><td></td><td colspan="6"><div class="arcfields">
+          ${f('Ro', 'R out', 'mm')}${f('chord', 'Chord', 'mm')}${f('drop', 'Drop', 'mm')}${f('angle', 'Angle', '°')}
+          <button class="dir ${a.d > 0 ? 'up' : 'down'}" data-act="adir" data-i="${i}" title="Arc curves: ${a.d > 0 ? 'up' : 'down'}">${a.d > 0 ? '▲' : '▼'}</button>
+        </div></td></tr>`;
+      }
     });
     h += '</tbody>';
     $('#rows').innerHTML = h;
@@ -571,14 +629,23 @@
       const td = document.querySelector(`[data-info="${i}"]`);
       if (!td) return;
       td.className = 'info';
-      if (l.empty) { td.textContent = ''; return; }
       const bits = [];
-      if (l.arc) bits.push(`arc R ${fmt(Math.abs(l.r))}`);
+      if (l.arc) {
+        const c = l.sol && !l.sol.bad ? l.sol.calc : null;
+        for (const k of ['Ro', 'chord', 'drop', 'angle']) {
+          const inp = document.querySelector(`input[data-kind="${k}"][data-i="${i}"]`);
+          if (inp) inp.placeholder = c ? (k === 'angle' ? fmtA(c[k]) : fmt(c[k])) : '';
+        }
+        const len = document.querySelector(`input[data-kind="len"][data-i="${i}"]`);
+        if (len) len.placeholder = c && st.legs[i] == null ? fmt(c.SL) : 'cut length';
+        if (l.sol && l.sol.mismatch && l.sol.mismatch.length) td.classList.add('amber');
+      }
       if (i === 0 && an.startTreat) bits.push(clampAngle(st.bends[0].a) >= 135 ? 'start hook' : 'start cog');
       if (i === n - 1 && an.endTreat) bits.push(clampAngle(st.bends[n - 2].a) >= 135 ? 'end hook' : 'end cog');
       if (i === an.seg1) bits.push('segment 1');
       if (l.short) { td.classList.add('red'); bits.push(`min ${fmt(l.min)}`); }
-      else { if (lastClamped.has(i)) td.classList.add('amber'); bits.push(`straight ${fmt(l.S)}`); }
+      else { if (lastClamped.has(i)) td.classList.add('amber'); bits.push(`${l.arc ? 'tangents' : 'straight'} ${fmt(l.S)}`); }
+      if (l.empty) { td.textContent = l.arc ? 'arc' : ''; return; }
       td.textContent = bits.join(' · ');
     });
   }
@@ -599,9 +666,9 @@
   function toCode() {
     const parts = [];
     st.legs.forEach((L, i) => {
-      const r = st.radii[i];
-      if (r != null && r !== 0) parts.push('r' + numStr(r));
-      parts.push('l' + (L == null ? '0' : numStr(L)));
+      const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
+      if (sol && !sol.bad) { parts.push('r' + numStr((a.d >= 0 ? 1 : -1) * sol.Rcl)); parts.push('l' + numStr(L ?? sol.calc.SL)); }
+      else parts.push('l' + (L == null ? '0' : numStr(L)));
       if (i < st.bends.length) parts.push('w' + numStr(clampAngle(st.bends[i].a) * (st.bends[i].d > 0 ? 1 : -1)));
     });
     return parts.join(',');
@@ -610,7 +677,8 @@
   function parseCode(code) {
     const toks = String(code).trim().split(/[\s,]+/).filter(Boolean);
     if (!toks.length) return null;
-    const legs = [], radii = [], bends = [];
+    const legs = [], arcs = [], bends = [];
+    const dBar = st.gauge || 0;
     if (/^[lwr]/i.test(toks[0])) {
       let pendingR = null;
       for (const t0 of toks) {
@@ -620,14 +688,16 @@
         if (k === 'r') { pendingR = v; continue; }
         if (k === 'l') {
           if (legs.length > bends.length) bends.push({ a: 0, d: 1 });   // two segments with no bend between: tangent join
-          legs.push(v > 0 ? v : null); radii.push(pendingR); pendingR = null;
+          legs.push(v > 0 ? v : null);
+          arcs.push(pendingR ? { Ro: Math.abs(pendingR) + dBar / 2, chord: null, drop: null, angle: null, d: pendingR < 0 ? -1 : 1 } : null);
+          pendingR = null;
         } else {
           if (legs.length === bends.length) return null;                 // bend before any segment
           bends.push({ a: clampAngle(Math.abs(v)), d: v < 0 ? -1 : 1 });
         }
       }
-      if (legs.length === bends.length) legs.push(null), radii.push(null);
-      return { legs, radii, bends, cut: true };
+      if (legs.length === bends.length) legs.push(null), arcs.push(null);
+      return { legs, arcs, bends, cut: true };
     }
     let cut = false;
     for (const t0 of toks) {
@@ -636,7 +706,7 @@
       if (legs.length === bends.length) {
         const v = t === '_' ? null : num(t);
         if (v === undefined) return null;
-        legs.push(v); radii.push(null);
+        legs.push(v); arcs.push(null);
       } else {
         const m = t.match(/^(\d+(?:\.\d+)?)([ud]?)$/);
         if (!m) return null;
@@ -644,14 +714,19 @@
       }
     }
     if (!legs.length) return null;
-    if (legs.length === bends.length) legs.push(null), radii.push(null);
-    return { legs, radii, bends, cut };
+    if (legs.length === bends.length) legs.push(null), arcs.push(null);
+    return { legs, arcs, bends, cut };
   }
   function toJSON() {
     return JSON.stringify({
       standard: 'IBR-SDS-001',
       gauge: st.gauge, pin: st.pin,
-      segments: st.legs.map((L, i) => st.radii[i] ? { length: L, radius: st.radii[i] } : { length: L }),
+      segments: st.legs.map((L, i) => {
+        const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
+        if (!sol || sol.bad) return { length: L };
+        const c = sol.calc;
+        return { cutLength: Math.round(L ?? c.SL), outsideRadius: Math.round(sol.Ro), centrelineRadius: Math.round(sol.Rcl), chord: Math.round(c.chord), drop: Math.round(c.drop), angle: Math.round(c.angle * 100) / 100, direction: a.d > 0 ? 'up' : 'down' };
+      }),
       bends: st.bends.map(b => ({ angle: clampAngle(b.a) * (b.d > 0 ? 1 : -1), direction: b.d > 0 ? 'up' : 'down' })),
       cut: st.cut, code: toCode(),
     }, null, 2);
@@ -660,10 +735,10 @@
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
+    if (num(q.get('g'))) st.gauge = num(q.get('g'));
     const parsed = q.get('s') ? parseCode(q.get('s')) : null;
     if (!parsed) return false;
     Object.assign(st, parsed);
-    if (num(q.get('g'))) st.gauge = num(q.get('g'));
     if (num(q.get('p'))) { st.pin = num(q.get('p')); st.pinAuto = st.pin === st.gauge * PIN_RATIO; }
     else st.pin = st.gauge * PIN_RATIO;
     st.view = q.get('v') === 'm' ? 'machine' : 'standard';
@@ -690,8 +765,10 @@
   // ---------- events ----------
   $('#rows').addEventListener('input', e => {
     const inp = e.target;
-    if (inp.dataset.kind === 'len') st.legs[+inp.dataset.i] = num(inp.value);
-    else if (inp.dataset.kind === 'ang') st.bends[+inp.dataset.i].a = clampAngle(inp.value);
+    const k = inp.dataset.kind, i = +inp.dataset.i;
+    if (k === 'len') st.legs[i] = num(inp.value);
+    else if (k === 'ang') st.bends[i].a = clampAngle(inp.value);
+    else if (['Ro', 'chord', 'drop', 'angle'].includes(k) && st.arcs[i]) st.arcs[i][k] = num(inp.value);
     else return;
     onChange();
   });
@@ -705,11 +782,17 @@
         e.preventDefault();
         if (i < st.legs.length - 1) return focusInput('ang', i, true);
         if (st.cut || st.legs[i] == null) return;
-        st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.radii.push(null);
+        st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.arcs.push(null);
         rebuild({ kind: 'ang', i, select: true });
       } else if ((e.key === 'c' || e.key === 'C') && i === st.legs.length - 1 && !st.cut) {
         e.preventDefault();
         if (st.legs[i] != null) { st.cut = true; rebuild(); inp.blur(); }
+      }
+    } else if (['Ro', 'chord', 'drop', 'angle'].includes(kind)) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const order = ['Ro', 'chord', 'drop', 'angle'], nx = order[order.indexOf(kind) + 1];
+        if (nx) focusInput(nx, i, true); else if (i < st.legs.length - 1) focusInput('ang', i, true);
       }
     } else if (kind === 'ang') {
       if (e.key === 'Enter') { e.preventDefault(); focusInput('len', i + 1, true); }
@@ -725,13 +808,17 @@
     const i = +btn.dataset.i, act = btn.dataset.act;
     switch (act) {
       case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
-      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.radii.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
+      case 'arc':
+        st.arcs[i] = st.arcs[i] ? null : { Ro: null, chord: null, drop: null, angle: null, d: 1 };
+        rebuild(st.arcs[i] ? { kind: 'Ro', i, select: true } : { kind: 'len', i }); break;
+      case 'adir': st.arcs[i].d = -st.arcs[i].d; rebuild(); break;
+      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.arcs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
       case 'delRow':
-        if (st.legs.length === 1) { st.legs = [null]; st.radii = [null]; st.bends = []; st.cut = false; }
-        else if (i < st.bends.length) { st.legs.splice(i, 1); st.radii.splice(i, 1); st.bends.splice(i, 1); }
-        else { st.legs.splice(i, 1); st.radii.splice(i, 1); st.bends.splice(i - 1, 1); }
+        if (st.legs.length === 1) { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; }
+        else if (i < st.bends.length) { st.legs.splice(i, 1); st.arcs.splice(i, 1); st.bends.splice(i, 1); }
+        else { st.legs.splice(i, 1); st.arcs.splice(i, 1); st.bends.splice(i - 1, 1); }
         rebuild({ kind: 'len', i: Math.min(i, st.legs.length - 1) }); break;
-      case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.radii.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
+      case 'addBend': st.bends.push({ a: 90, d: 1 }); st.legs.push(null); st.arcs.push(null); rebuild({ kind: 'ang', i: st.bends.length - 1, select: true }); break;
       case 'cut': st.cut = true; rebuild(); break;
       case 'uncut': st.cut = false; rebuild({ kind: 'len', i: st.legs.length - 1 }); break;
     }
@@ -746,9 +833,9 @@
   });
   pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
   $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
-  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.radii = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
-  $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); st.radii = st.radii.map(r => r == null ? null : -r); rebuild(); });
-  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.radii.reverse(); st.bends.reverse(); rebuild(); });
+  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
+  $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); st.arcs.forEach(a => { if (a) a.d = -a.d; }); rebuild(); });
+  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.arcs.reverse(); st.bends.reverse(); rebuild(); });
   $('#rotate').addEventListener('click', () => { st.rot = (st.rot + 1) % 4; onChange(); });
   $('#viewStd').addEventListener('click', () => { st.view = 'standard'; st.rot = 0; onChange(); });
   $('#viewMach').addEventListener('click', () => { st.view = 'machine'; st.rot = 0; onChange(); });

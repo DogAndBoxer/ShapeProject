@@ -33,8 +33,14 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 - **Validation offsets** (standard section 4.2): Segment 1 on the straight edge, X along it and Y off it,
   from the bend at the end of Segment 1 to each later bend. For bends of 90 or less the point is the
   virtual corner; for bends over 90 it is the outside of the bar. Hooks and cogs get none.
-- **Arc segments** carry a signed radius (clockwise positive) and an arc length. They parse, serialise and
-  draw. Chord and drop validation, and entry from the table rather than the code, are not done yet.
+- **Arc segments** (radius bends, rings, arches). The ⌒ button on a segment row makes it an arc. The row's
+  length becomes the cut length and a sub-row takes outside radius, chord, drop and angle, plus a direction.
+  Any two values fix the arc; the solver tries pairs in this order: radius and cut length, radius and angle,
+  radius and chord, chord and drop, chord and angle, drop and angle, cut length and angle. Blank fields show
+  the calculated value. A typed value the solver did not use is checked against the calculation and flagged
+  when it differs by more than 1 mm or half a degree. Chord and drop are on the outside face; cut length is
+  on the centreline. Adjacent straights are dimensioned to the tangent points. A ring is an arc whose angle
+  comes out at 360. The code carries the standard's centreline `r` and cut length `l`.
 
 ### Views
 
@@ -59,6 +65,5 @@ The URL hash carries the code, bar and pin diameter, and the view, so a link rep
 ### Parked for later
 
 - Non-planar shapes (a rotation angle per bend). The standard lists 3D input as a future item.
-- Chord and drop validation for arcs, and arc entry in the table.
 - Machine capability rules per model and gauge, captured by clicking segments and bends on a shape,
   and the pass/fail/no-data view per machine that follows from them.
