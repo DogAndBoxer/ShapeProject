@@ -429,20 +429,33 @@
     const S = p => { const q = T(p); return [ox + q[0], oy - q[1]]; };
     const SV = v => { const q = T(v); return [q[0], -q[1]]; };
 
-    // bar
-    const pts = [];
-    for (const pc of path.pieces) {
-      if (pc.type === 'leg') { if (!pts.length) pts.push(S(pc.p0)); pts.push(S(pc.p1)); }
-      else { if (!pts.length) pts.push(S(pc.pts[0])); for (const q of pc.pts.slice(1)) pts.push(S(q)); }
-    }
-    g.appendChild(el('polyline', {
-      points: pts.map(p => p.map(v => v.toFixed(2)).join(',')).join(' '),
-      fill: 'none', stroke: '#111', 'stroke-width': Math.max(1.5, path.halfW * 2),
-      'stroke-linejoin': 'round', 'stroke-linecap': 'butt',
+    // bar: hollow outline, each segment and bend drawn in entry order so later parts of the bar sit in front
+    const OUT = 1.25;                                         // outline thickness, px
+    const BW = Math.max(1.5, path.halfW * 2);
+    const units = path.pieces.map((pc, k) => ({
+      z: pc.type === 'arc' ? 2 * pc.i + 1 : 2 * pc.i,
+      pts: pc.type === 'leg' ? [S(pc.p0), S(pc.p1)] : pc.pts.map(S),
+      startFree: k === 0, endFree: k === path.pieces.length - 1,
+    })).sort((a, b) => a.z - b.z);
+    const extend = (pts, s0, s1) => {
+      const a = pts[0], b = pts[1], y = pts[pts.length - 2], z = pts[pts.length - 1];
+      const d0 = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1, d1 = Math.hypot(z[0] - y[0], z[1] - y[1]) || 1;
+      return [[a[0] - (b[0] - a[0]) / d0 * s0, a[1] - (b[1] - a[1]) / d0 * s0], ...pts, [z[0] + (z[0] - y[0]) / d1 * s1, z[1] + (z[1] - y[1]) / d1 * s1]];
+    };
+    const poly = (pts, stroke, width) => g.appendChild(el('polyline', {
+      points: pts.map(q => q.map(v => v.toFixed(2)).join(',')).join(' '),
+      fill: 'none', stroke, 'stroke-width': width, 'stroke-linejoin': 'round', 'stroke-linecap': 'butt',
     }));
+    for (const u of units) {
+      const len = u.pts.reduce((acc, q, j) => j ? acc + Math.hypot(q[0] - u.pts[j - 1][0], q[1] - u.pts[j - 1][1]) : 0, 0);
+      if (len < 0.01) continue;
+      poly(extend(u.pts, u.startFree ? OUT : 1, u.endFree ? OUT : 1), '#111', BW + 2 * OUT);
+      poly(extend(u.pts, u.startFree ? 0 : 1, u.endFree ? 0 : 1), '#fff', BW);
+    }
 
     // labels
     const cx = ox + (box.minX + box.maxX) / 2, cy = oy - (box.minY + box.maxY) / 2;
+    const placed = [];
     path.pieces.forEach((pc, k) => {
       if (pc.type === 'leg') {
         const leg = an.legs[pc.i];
@@ -461,8 +474,17 @@
         if (vote < 0) n = [-n[0], -n[1]];
         const off = path.halfW + 6 + Math.abs(n[0]) * (text.length * 4.6) + Math.abs(n[1]) * 8;
         if (pc.clamped) lastClamped.add(pc.i);
+        // nudge along the segment if the label would sit on one already placed (lapped or coincident segments)
+        const bw = text.length * 9 + 6, bh = 18;
+        let lx = m[0] + n[0] * off, ly = m[1] + n[1] * off;
+        const clash = (x, y) => placed.some(b => Math.abs(b.x - x) < (b.w + bw) / 2 && Math.abs(b.y - y) < bh);
+        if (clash(lx, ly)) for (const k of [1, -1, 2, -2]) {
+          const tx = lx + d[0] * k * (bw + 6), ty = ly + d[1] * k * (bw + 6);
+          if (!clash(tx, ty)) { lx = tx; ly = ty; break; }
+        }
+        placed.push({ x: lx, y: ly, w: bw });
         g.appendChild(el('text', {
-          x: (m[0] + n[0] * off).toFixed(1), y: (m[1] + n[1] * off).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
           class: 'leg' + (an.legs[pc.i].short ? ' red' : pc.clamped ? ' amber' : ''),
         }, text));
       } else if (pc.type === 'arcseg') {
