@@ -17,6 +17,7 @@
     --amber: #b45309;
     --bar: #111111;
     --dim: #2563eb;
+    --arc: #15803d;
   }
   * { box-sizing: border-box; }
   body {
@@ -109,6 +110,7 @@
   #rows .arcfields label { display: inline-flex; align-items: center; gap: 4px; }
   #rows .arcfields input[type=number] { width: 66px; font-size: 13px; padding: 3px 5px; }
   #rows .arcfields input::placeholder { color: #9ca3af; }
+  #rows .arccalc { color: var(--arc); font-size: 11px; white-space: nowrap; }
   #rows .arcfields button.dir { width: 32px; padding: 3px 0; font-size: 13px; }
   #view { position: relative; }
   #view svg { width: 100%; height: max(380px, calc(100vh - 360px)); display: block; background: #fff; border-radius: 10px 10px 0 0; }
@@ -154,6 +156,8 @@
   svg text.dim { font-size: 12px; fill: var(--dim); }
   svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
   svg .ext { stroke: var(--dim); stroke-width: .75; opacity: .6; }
+  svg .arcdim { stroke: var(--arc); stroke-width: 1; stroke-dasharray: 5 3; fill: none; }
+  svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
 </style>
 </head>
 <body>
@@ -198,6 +202,9 @@
         <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0,1 L9,5 L0,9 z" fill="#2563eb"/>
         </marker>
+        <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,1 L9,5 L0,9 z" fill="#15803d"/>
+        </marker>
       </defs>
       <g id="g"></g>
     </svg>
@@ -227,7 +234,7 @@
   const st = {
     gauge: 12, pin: 48, pinAuto: true,
     legs: [250, 1000, 500],      // out-to-out segment lengths (arc length for arc segments)
-    arcs: [null, null, null],    // null = straight; else {Ro, chord, drop, angle, d}: typed values (null = blank), d = +1 clockwise forward
+    arcs: [null, null, null],    // null = straight; else {Ro: outside radius, d: +1 clockwise forward}
     bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],  // a = bend angle, d = +1 up (clockwise forward), -1 down
     cut: true,
     view: 'standard', rot: 0,
@@ -240,82 +247,15 @@
   const fmt = v => String(Math.round(v));
   const fmtA = a => (Math.round(a * 100) / 100).toString();
 
-  // An arc is fixed by two values. The two most recently edited fields are the pair; everything else follows.
-  // Ro is the outside radius, SL the cut length on the centreline, chord and drop on the outside face.
-  // Where a pair has two solutions the one nearest the arc's current angle wins. Where a pair is impossible
-  // the older of the two values is adjusted to the nearest possible arc.
-  const ARC_KEYS = ['Ro', 'SL', 'chord', 'drop', 'angle'];
-  const ARC_PAIRS = [['Ro', 'SL'], ['Ro', 'angle'], ['Ro', 'chord'], ['Ro', 'drop'], ['chord', 'drop'], ['chord', 'angle'], ['drop', 'angle'], ['SL', 'angle'], ['SL', 'chord'], ['SL', 'drop']];
-  const TWO_PI = 2 * Math.PI;
-  function rootsNear(f, prev) {
-    const N = 720, roots = [];
-    let a = TWO_PI / N, fa = f(a);
-    for (let k = 2; k <= N; k++) {
-      const b = k * TWO_PI / N, fb = f(b);
-      if (fa === 0) roots.push(a);
-      else if (fa * fb < 0) { let lo = a, hi = b, flo = fa; for (let j = 0; j < 40; j++) { const m = (lo + hi) / 2, fm = f(m); if (flo * fm <= 0) hi = m; else { lo = m; flo = fm; } } roots.push((lo + hi) / 2); }
-      a = b; fa = fb;
-    }
-    if (!roots.length) return null;
-    return roots.reduce((best, r) => Math.abs(r - prev) < Math.abs(best - prev) ? r : best, roots[0]);
-  }
+  // An arc segment is defined by its outside radius Ro and its cut length SL (centreline). Chord and drop are
+  // reported on the outside face. Returns null while either value is missing.
   function solveArc(a, SL, d) {
-    const v = { Ro: a.Ro, chord: a.chord, drop: a.drop, angle: a.angle, SL };
-    const ok = k => v[k] > 0 || (k === 'chord' && v[k] === 0);
-    let pair = (a.recent || []).filter(ok).slice(0, 2);
-    if (pair.length < 2) pair = ARC_PAIRS.find(([x, y]) => ok(x) && ok(y)) || null;
-    if (!pair) return null;
-    const has = k => pair.includes(k), older = pair[1], prev = a._th || Math.PI / 2;
-    const near = (t1, t2) => Math.abs(t1 - prev) <= Math.abs(t2 - prev) ? t1 : t2;
-    let R, th, adjusted = null;
-    if (has('Ro') && has('SL')) { R = v.Ro; th = v.SL / (v.Ro - d / 2); }
-    else if (has('Ro') && has('angle')) { R = v.Ro; th = rad(v.angle); }
-    else if (has('Ro') && has('chord')) {
-      if (v.chord > 2 * v.Ro) { adjusted = older; if (older === 'Ro') { R = v.chord / 2; th = Math.PI; } else { R = v.Ro; th = Math.PI; } }
-      else { R = v.Ro; const t = 2 * Math.asin(v.chord / (2 * R)); th = near(t, TWO_PI - t); }
-    }
-    else if (has('Ro') && has('drop')) {
-      if (v.drop > 2 * v.Ro) { adjusted = older; if (older === 'Ro') { R = v.drop / 2; th = TWO_PI; } else { R = v.Ro; th = TWO_PI; } }
-      else { R = v.Ro; th = 2 * Math.acos(1 - v.drop / R); }
-    }
-    else if (has('chord') && has('drop')) { R = v.chord * v.chord / (8 * v.drop) + v.drop / 2; th = 2 * Math.asin(Math.min(1, v.chord / (2 * R))); if (v.drop > R) th = TWO_PI - th; }
-    else if (has('chord') && has('angle')) { th = rad(v.angle); const sn = Math.sin(th / 2); R = Math.abs(sn) > 1e-6 ? v.chord / (2 * sn) : (v.Ro || v.SL / th + d / 2 || 100); }
-    else if (has('drop') && has('angle')) { th = rad(v.angle); R = v.drop / (1 - Math.cos(th / 2)); }
-    else if (has('SL') && has('angle')) { th = rad(v.angle); R = v.SL / th + d / 2; }
-    else if (has('SL') && has('chord')) {
-      th = rootsNear(t => 2 * (v.SL / t + d / 2) * Math.sin(t / 2) - v.chord, prev);
-      if (th == null) { adjusted = older; th = rad(1); }
-      R = v.SL / th + d / 2;
-    }
-    else {  // SL + drop
-      th = rootsNear(t => (v.SL / t + d / 2) * (1 - Math.cos(t / 2)) - v.drop, prev);
-      if (th == null) { adjusted = older; th = TWO_PI; }
-      R = v.SL / th + d / 2;
-    }
-    if (!(th > 0) || !isFinite(th)) th = rad(1);
-    if (th > TWO_PI) th = TWO_PI;
-    if (!(R - d / 2 > 0) || !isFinite(R)) { R = d; adjusted = adjusted || older; }
-    const Rcl = R - d / 2;
-    a._th = th;
-    const calc = { Ro: R, SL: Rcl * th, chord: 2 * R * Math.sin(th / 2), drop: R * (1 - Math.cos(th / 2)), angle: th * 180 / Math.PI };
-    return { Ro: R, Rcl, th, used: pair, calc, adjusted };
+    if (!(a.Ro > 0) || !(SL > 0)) return null;
+    const R = a.Ro, Rcl = R - d / 2;
+    if (!(Rcl > 0)) return { bad: true };
+    const th = Math.min(SL / Rcl, 2 * Math.PI);
+    return { Ro: R, Rcl, th, calc: { Ro: R, SL, chord: 2 * R * Math.sin(th / 2), drop: R * (1 - Math.cos(th / 2)), angle: th * 180 / Math.PI } };
   }
-  // Write the solved values back into the arc's fields, leaving the pair that defined it alone.
-  function fillArc(i) {
-    const a = st.arcs[i];
-    if (!a) return;
-    const sol = solveArc(a, st.legs[i], st.gauge || 0);
-    const inputOf = k => document.querySelector(`input[data-kind="${k === 'SL' ? 'len' : k}"][data-i="${i}"]`);
-    for (const k of ARC_KEYS) {
-      const inp = inputOf(k);
-      if (!sol) { if (inp && !(k === 'SL' ? st.legs[i] > 0 : a[k] > 0)) inp.placeholder = k === 'SL' ? 'cut length' : ''; continue; }
-      if (sol.used.includes(k) && k !== sol.adjusted) continue;
-      const val = sol.calc[k];
-      if (k === 'SL') st.legs[i] = val; else a[k] = val;
-      if (inp && document.activeElement !== inp) inp.value = k === 'angle' ? fmtA(val) : fmt(val);
-    }
-  }
-  const noteArc = (a, k) => { a.recent = [k, ...(a.recent || []).filter(x => x !== k)].slice(0, 2); };
 
   function analyse() {
     const d = st.gauge || 0, pin = st.pin || 0, n = st.legs.length;
@@ -331,12 +271,12 @@
       let L = L0, sol = null, r = null;
       if (a) {
         sol = solveArc(a, L0, d);
-        if (sol) { L = L0 ?? sol.calc.SL; r = (a.d >= 0 ? 1 : -1) * sol.Rcl; }
+        if (sol && !sol.bad) r = (a.d >= 0 ? 1 : -1) * sol.Rcl;
         else L = null;
       }
       const empty = L == null;
       const S = (empty ? 0 : L) - min;
-      return { L, min, S, empty, short: !empty && S < 0, arc: !!a, r, sol, Ro: sol ? sol.Ro : null };
+      return { L, min, S, empty, short: !empty && S < 0, arc: !!a, r, sol: sol && !sol.bad ? sol : null, badArc: !!(sol && sol.bad), Ro: sol && !sol.bad ? sol.Ro : null };
     });
     // Start and end treatments (hooks and cogs): an end segment whose bend is 90 or more and which is
     // shorter than the segment it joins. Segment 1 is the first segment that is not a treatment.
@@ -350,7 +290,8 @@
     const warnings = [];
     legs.forEach((l, i) => {
       if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
-      if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs one more value (outside radius, cut length, chord, drop or angle).` });
+      if (l.badArc) warnings.push({ cls: 'red', text: `Segment ${i + 1}: outside radius must be larger than the bar.` });
+      else if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs cut length and outside radius.` });
       else if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
     });
     st.bends.forEach((b, i) => {
@@ -587,6 +528,23 @@
         const lx = c[0] + o[0] * dist, ly = c[1] + o[1] * dist;
         g.appendChild(el('text', { x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'leg' + (leg.short ? ' red' : '') }, fmt(leg.L)));
         g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(leg.Ro)} out`));
+        // chord and drop on the outside face, in the arc colour
+        if (leg.sol) {
+          const ro = pc.r + path.halfW;
+          const outer = q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * ro / L, c[1] + vy * ro / L]; };
+          const A = outer(pc.pts[0]), B = outer(pc.pts[pc.pts.length - 1]);
+          const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], P = [c[0] + o[0] * ro, c[1] + o[1] * ro];
+          const chordPx = Math.hypot(B[0] - A[0], B[1] - A[1]);
+          if (chordPx > 2 && leg.sol.calc.chord >= 1) {
+            g.appendChild(el('line', { x1: A[0], y1: A[1], x2: B[0], y2: B[1], class: 'arcdim' }));
+            const u = [(B[0] - A[0]) / chordPx, (B[1] - A[1]) / chordPx];
+            const away = [-o[0], -o[1]];   // label on the side of the chord away from the apex
+            g.appendChild(el('text', { x: (M[0] + away[0] * 12).toFixed(1), y: (M[1] + away[1] * 12).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'arctext' }, `chord ${fmt(leg.sol.calc.chord)}`));
+          }
+          g.appendChild(el('line', { x1: M[0], y1: M[1], x2: P[0], y2: P[1], class: 'arcdim', 'marker-start': 'url(#arrg)', 'marker-end': 'url(#arrg)' }));
+          const mid = [(M[0] + P[0]) / 2, (M[1] + P[1]) / 2], n = [-o[1], o[0]];
+          g.appendChild(el('text', { x: (mid[0] + n[0] * 10).toFixed(1), y: (mid[1] + n[1] * 10).toFixed(1), 'text-anchor': n[0] > 0.3 ? 'start' : n[0] < -0.3 ? 'end' : 'middle', 'dominant-baseline': 'middle', class: 'arctext' }, `drop ${fmt(leg.sol.calc.drop)}`));
+        }
       } else if (pc.aDeg !== 90) {
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
         g.appendChild(el('text', {
@@ -626,7 +584,7 @@
         <table class="off"><tr><td></td><td>X</td><td>Y</td></tr>${off.map(o => `<tr><td>Bend ${o.bend}${o.tangent ? ' (outside of bar)' : ''}</td><td>${fmt(o.X)}</td><td>${fmt(o.Y)}</td></tr>`).join('')}</table></div>`;
     }
     const arcRows = an.legs.map((l, i) => l.sol ? `<tr><td>Segment ${i + 1}</td><td>${fmt(l.sol.Ro)}</td><td>${fmt(l.sol.calc.SL)}</td><td>${fmt(l.sol.calc.chord)}</td><td>${fmt(l.sol.calc.drop)}</td><td>${fmtA(l.sol.calc.angle)}°</td></tr>` : '').join('');
-    if (arcRows) h += `<div class="wide"><div class="k">Arc segments (outside face)</div><table class="off"><tr><td></td><td>R out</td><td>Cut length</td><td>Chord</td><td>Drop</td><td>Angle</td></tr>${arcRows}</table></div>`;
+    if (arcRows) h += `<div class="wide"><div class="k">Arc segments (chord and drop on the outside face)</div><table class="off"><tr><td></td><td>R out</td><td>Cut length</td><td>Chord</td><td>Drop</td><td>Angle</td></tr>${arcRows}</table></div>`;
     const w = an.warnings.slice();
     if (lastClamped.size) w.push({ cls: 'amber', text: `Amber segments are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'segment ' + (i + 1)).join(', ')}).` });
     if (w.length) h += `<div id="warnings">${w.map(x => `<div class="${x.cls}">${x.text}</div>`).join('')}</div>`;
@@ -653,16 +611,16 @@
       const a = st.arcs[i];
       h += `<tr class="leg${a ? ' isarc' : ''}" data-i="${i}">
         <td class="n">${i + 1}</td>
-        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L == null ? '' : a ? fmt(L) : L}" placeholder="${a ? 'cut length' : 'length'}"><div class="info" data-info="${i}"></div></td>
+        <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="${a ? 'cut length' : 'length'}"><div class="info" data-info="${i}"></div></td>
         <td class="unit">mm</td>
         ${bendCells}
         <td class="act"><button class="arcbtn${a ? ' on' : ''}" title="${a ? 'Make this a straight segment' : 'Make this an arc segment'}" data-act="arc" data-i="${i}">⌒</button><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
       </tr>`;
       if (a) {
-        const f = (k, label, unit) => `<label>${label} <input type="number" inputmode="decimal" min="0" step="1" data-kind="${k}" data-i="${i}" value="${a[k] == null ? '' : k === 'angle' ? fmtA(a[k]) : fmt(a[k])}"><span>${unit}</span></label>`;
         h += `<tr class="arcrow" data-i="${i}"><td></td><td colspan="6"><div class="arcfields">
-          ${f('Ro', 'R out', 'mm')}${f('chord', 'Chord', 'mm')}${f('drop', 'Drop', 'mm')}${f('angle', 'Angle', '°')}
+          <label>Outside radius <input type="number" inputmode="decimal" min="1" step="1" data-kind="Ro" data-i="${i}" value="${a.Ro == null ? '' : fmt(a.Ro)}"><span>mm</span></label>
           <button class="dir ${a.d > 0 ? 'up' : 'down'}" data-act="adir" data-i="${i}" title="Arc curves: ${a.d > 0 ? 'up' : 'down'}">${a.d > 0 ? '▲' : '▼'}</button>
+          <span class="arccalc" data-arccalc="${i}"></span>
         </div></td></tr>`;
       }
     });
@@ -677,7 +635,10 @@
       if (!td) return;
       td.className = 'info';
       const bits = [];
-      if (l.arc && l.sol && l.sol.adjusted) bits.push(`${l.sol.adjusted === 'SL' ? 'cut length' : l.sol.adjusted === 'Ro' ? 'radius' : l.sol.adjusted} adjusted`);
+      if (l.arc) {
+        const sp = document.querySelector(`[data-arccalc="${i}"]`);
+        if (sp) sp.textContent = l.sol ? `chord ${fmt(l.sol.calc.chord)} · drop ${fmt(l.sol.calc.drop)} · ${fmtA(l.sol.calc.angle)}°` : '';
+      }
       if (i === 0 && an.startTreat) bits.push(clampAngle(st.bends[0].a) >= 135 ? 'start hook' : 'start cog');
       if (i === n - 1 && an.endTreat) bits.push(clampAngle(st.bends[n - 2].a) >= 135 ? 'end hook' : 'end cog');
       if (i === an.seg1) bits.push('segment 1');
@@ -705,7 +666,7 @@
     const parts = [];
     st.legs.forEach((L, i) => {
       const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
-      if (sol) { parts.push('r' + Math.round((a.d >= 0 ? 1 : -1) * sol.Rcl)); parts.push('l' + Math.round(L ?? sol.calc.SL)); }
+      if (sol && !sol.bad) { parts.push('r' + Math.round((a.d >= 0 ? 1 : -1) * sol.Rcl)); parts.push('l' + Math.round(L)); }
       else parts.push('l' + (L == null ? '0' : Math.round(L)));
       if (i < st.bends.length) parts.push('w' + numStr(clampAngle(st.bends[i].a) * (st.bends[i].d > 0 ? 1 : -1)));
     });
@@ -727,7 +688,7 @@
         if (k === 'l') {
           if (legs.length > bends.length) bends.push({ a: 0, d: 1 });   // two segments with no bend between: tangent join
           legs.push(v > 0 ? v : null);
-          arcs.push(pendingR ? { Ro: Math.abs(pendingR) + dBar / 2, chord: null, drop: null, angle: null, d: pendingR < 0 ? -1 : 1, recent: ['Ro', 'SL'] } : null);
+          arcs.push(pendingR ? { Ro: Math.abs(pendingR) + dBar / 2, d: pendingR < 0 ? -1 : 1 } : null);
           pendingR = null;
         } else {
           if (legs.length === bends.length) return null;                 // bend before any segment
@@ -761,9 +722,9 @@
       gauge: st.gauge, pin: st.pin,
       segments: st.legs.map((L, i) => {
         const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
-        if (!sol) return { length: L };
+        if (!sol || sol.bad) return { length: L };
         const c = sol.calc;
-        return { cutLength: Math.round(L ?? c.SL), outsideRadius: Math.round(sol.Ro), centrelineRadius: Math.round(sol.Rcl), chord: Math.round(c.chord), drop: Math.round(c.drop), angle: Math.round(c.angle * 100) / 100, direction: a.d > 0 ? 'up' : 'down' };
+        return { cutLength: Math.round(L), outsideRadius: Math.round(sol.Ro), centrelineRadius: Math.round(sol.Rcl), chord: Math.round(c.chord), drop: Math.round(c.drop), angle: Math.round(c.angle * 100) / 100, direction: a.d > 0 ? 'up' : 'down' };
       }),
       bends: st.bends.map(b => ({ angle: clampAngle(b.a) * (b.d > 0 ? 1 : -1), direction: b.d > 0 ? 'up' : 'down' })),
       cut: st.cut, code: toCode(),
@@ -785,7 +746,6 @@
 
   // ---------- update cycle ----------
   function onChange() {
-    st.arcs.forEach((a, i) => { if (a) fillArc(i); });
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);
@@ -805,9 +765,9 @@
   $('#rows').addEventListener('input', e => {
     const inp = e.target;
     const k = inp.dataset.kind, i = +inp.dataset.i;
-    if (k === 'len') { st.legs[i] = num(inp.value); if (st.arcs[i]) noteArc(st.arcs[i], 'SL'); }
+    if (k === 'len') st.legs[i] = num(inp.value);
     else if (k === 'ang') st.bends[i].a = clampAngle(inp.value);
-    else if (['Ro', 'chord', 'drop', 'angle'].includes(k) && st.arcs[i]) { st.arcs[i][k] = num(inp.value); noteArc(st.arcs[i], k); }
+    else if (k === 'Ro' && st.arcs[i]) st.arcs[i].Ro = num(inp.value);
     else return;
     onChange();
   });
@@ -827,12 +787,8 @@
         e.preventDefault();
         if (st.legs[i] != null) { st.cut = true; rebuild(); inp.blur(); }
       }
-    } else if (['Ro', 'chord', 'drop', 'angle'].includes(kind)) {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const order = ['Ro', 'chord', 'drop', 'angle'], nx = order[order.indexOf(kind) + 1];
-        if (nx) focusInput(nx, i, true); else if (i < st.legs.length - 1) focusInput('ang', i, true);
-      }
+    } else if (kind === 'Ro') {
+      if (e.key === 'Enter') { e.preventDefault(); if (i < st.legs.length - 1) focusInput('ang', i, true); }
     } else if (kind === 'ang') {
       if (e.key === 'Enter') { e.preventDefault(); focusInput('len', i + 1, true); }
       else if (e.key === 'ArrowUp' || e.key === 'u' || e.key === 'U') { e.preventDefault(); setDir(i, 1); onChange(); }
@@ -848,7 +804,7 @@
     switch (act) {
       case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
       case 'arc':
-        st.arcs[i] = st.arcs[i] ? null : { Ro: null, chord: null, drop: null, angle: null, d: 1, recent: st.legs[i] > 0 ? ['SL'] : [] };
+        st.arcs[i] = st.arcs[i] ? null : { Ro: null, d: 1 };
         rebuild(st.arcs[i] ? { kind: 'Ro', i, select: true } : { kind: 'len', i }); break;
       case 'adir': st.arcs[i].d = -st.arcs[i].d; rebuild(); break;
       case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.arcs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;

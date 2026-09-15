@@ -34,14 +34,11 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
   from the bend at the end of Segment 1 to each later bend. For bends of 90 or less the point is the
   virtual corner; for bends over 90 it is the outside of the bar. Hooks and cogs get none.
 - **Arc segments** (radius bends, rings, arches). The ⌒ button on a segment row makes it an arc. The row's
-  length becomes the cut length and a sub-row takes outside radius, chord, drop and angle, plus a direction.
-  Any two values fix the arc. The two most recently edited fields are the pair and the other three are
-  filled in, so changing any one value moves the rest to keep the arc possible. Where a pair has two
-  solutions (radius and chord, for instance) the one nearest the current angle wins, so a ring edited to a
-  small chord becomes a ring with a gap rather than a small arc. Where a pair is impossible (chord wider than
-  the diameter) the older of the two values is adjusted and the row says so. Chord and drop are on the
-  outside face; cut length is on the centreline. Adjacent straights are dimensioned to the tangent points. A ring is an arc whose angle
-  comes out at 360. The code carries the standard's centreline `r` and cut length `l`.
+  length becomes the cut length (centreline) and a sub-row takes the outside radius and a direction. Chord,
+  drop and angle are calculated, shown beside the radius, listed in the stats, and drawn on the shape in
+  green with the chord as a dashed line and the drop as a dimension to the apex. Chord and drop are on the
+  outside face. Adjacent straights are dimensioned to the tangent points. A ring is an arc whose angle comes
+  out at 360. The code carries the standard's centreline `r` and cut length `l`.
 
 ### Views
 
