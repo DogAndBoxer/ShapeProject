@@ -247,14 +247,15 @@
   const fmt = v => String(Math.round(v));
   const fmtA = a => (Math.round(a * 100) / 100).toString();
 
-  // An arc segment is defined by its outside radius Ro and its cut length SL (centreline). Chord and drop are
-  // reported on the outside face. Returns null while either value is missing.
+  // An arc segment is defined by its outside radius Ro and its cut length SL (centreline). The chord is
+  // between the arc's ends on the inside face; the drop is from that chord line to the outside of the bar
+  // at the apex. Returns null while either value is missing.
   function solveArc(a, SL, d) {
     if (!(a.Ro > 0) || !(SL > 0)) return null;
     const R = a.Ro, Rcl = R - d / 2;
     if (!(Rcl > 0)) return { bad: true };
-    const th = Math.min(SL / Rcl, 2 * Math.PI);
-    return { Ro: R, Rcl, th, calc: { Ro: R, SL, chord: 2 * R * Math.sin(th / 2), drop: R * (1 - Math.cos(th / 2)), angle: th * 180 / Math.PI } };
+    const th = Math.min(SL / Rcl, 2 * Math.PI), Ri = Math.max(0, R - d);
+    return { Ro: R, Rcl, th, calc: { Ro: R, SL, chord: 2 * Ri * Math.sin(th / 2), drop: R - Ri * Math.cos(th / 2), angle: th * 180 / Math.PI } };
   }
 
   function analyse() {
@@ -528,11 +529,11 @@
         const lx = c[0] + o[0] * dist, ly = c[1] + o[1] * dist;
         g.appendChild(el('text', { x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'leg' + (leg.short ? ' red' : '') }, fmt(leg.L)));
         g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(leg.Ro)} out`));
-        // chord and drop on the outside face, in the arc colour
+        // chord on the inside face, drop from the chord line to the outside apex, in the arc colour
         if (leg.sol) {
-          const ro = pc.r + path.halfW;
-          const outer = q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * ro / L, c[1] + vy * ro / L]; };
-          const A = outer(pc.pts[0]), B = outer(pc.pts[pc.pts.length - 1]);
+          const ro = pc.r + path.halfW, ri = Math.max(0.5, pc.r - path.halfW);
+          const inner = q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * ri / L, c[1] + vy * ri / L]; };
+          const A = inner(pc.pts[0]), B = inner(pc.pts[pc.pts.length - 1]);
           const M = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2], P = [c[0] + o[0] * ro, c[1] + o[1] * ro];
           const chordPx = Math.hypot(B[0] - A[0], B[1] - A[1]);
           if (chordPx > 2 && leg.sol.calc.chord >= 1) {
@@ -584,7 +585,7 @@
         <table class="off"><tr><td></td><td>X</td><td>Y</td></tr>${off.map(o => `<tr><td>Bend ${o.bend}${o.tangent ? ' (outside of bar)' : ''}</td><td>${fmt(o.X)}</td><td>${fmt(o.Y)}</td></tr>`).join('')}</table></div>`;
     }
     const arcRows = an.legs.map((l, i) => l.sol ? `<tr><td>Segment ${i + 1}</td><td>${fmt(l.sol.Ro)}</td><td>${fmt(l.sol.calc.SL)}</td><td>${fmt(l.sol.calc.chord)}</td><td>${fmt(l.sol.calc.drop)}</td><td>${fmtA(l.sol.calc.angle)}°</td></tr>` : '').join('');
-    if (arcRows) h += `<div class="wide"><div class="k">Arc segments (chord and drop on the outside face)</div><table class="off"><tr><td></td><td>R out</td><td>Cut length</td><td>Chord</td><td>Drop</td><td>Angle</td></tr>${arcRows}</table></div>`;
+    if (arcRows) h += `<div class="wide"><div class="k">Arc segments (chord on the inside face, drop to the outside apex)</div><table class="off"><tr><td></td><td>R out</td><td>Cut length</td><td>Chord</td><td>Drop</td><td>Angle</td></tr>${arcRows}</table></div>`;
     const w = an.warnings.slice();
     if (lastClamped.size) w.push({ cls: 'amber', text: `Amber segments are drawn longer than scale so they stay legible (${[...lastClamped].sort((a, b) => a - b).map(i => 'segment ' + (i + 1)).join(', ')}).` });
     if (w.length) h += `<div id="warnings">${w.map(x => `<div class="${x.cls}">${x.text}</div>`).join('')}</div>`;
