@@ -587,8 +587,9 @@
         const lx = c[0] + o[0] * dist, ly = c[1] + o[1] * dist;
         g.appendChild(el('text', { x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'leg' + (leg.short ? ' red' : '') }, fmt(leg.L)));
         g.appendChild(el('text', { x: (lx + o[0] * 14).toFixed(1), y: (ly + o[1] * 14 + (o[1] >= 0 ? 6 : -6)).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang' }, `R ${fmt(leg.Ro)} out`));
-        // chord on the inside face, drop from the chord line to the outside apex, in the arc colour
-        if (leg.sol) {
+        // chord on the inside face, drop from the chord line to the outside apex, in the arc colour;
+        // nothing to show on a ring that closes on itself
+        if (leg.sol && leg.sol.calc.angle < 359.5) {
           const ro = pc.r + path.halfW, ri = Math.max(0.5, pc.r - path.halfW);
           const inner = q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * ri / L, c[1] + vy * ri / L]; };
           const A = inner(pc.pts[0]), B = inner(pc.pts[pc.pts.length - 1]);
