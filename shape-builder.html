@@ -157,6 +157,7 @@
   svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
   svg .ext { stroke: var(--dim); stroke-width: .75; opacity: .6; }
   svg .arcdim { stroke: var(--arc); stroke-width: 1; stroke-dasharray: 5 3; fill: none; }
+  svg .hidden polyline, svg .hidden line { stroke: #111; stroke-width: 1.25; stroke-dasharray: 2 2.5; fill: none; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
 </style>
 </head>
@@ -484,10 +485,42 @@
     }));
     for (const u of units) {
       const len = u.pts.reduce((acc, q, j) => j ? acc + Math.hypot(q[0] - u.pts[j - 1][0], q[1] - u.pts[j - 1][1]) : 0, 0);
-      if (len < 0.01) continue;
+      u.skip = len < 0.01;
+      if (u.skip) continue;
       poly(extend(u.pts, u.startFree ? OUT : 1, u.endFree ? OUT : 1), '#111', BW + 2 * OUT);
       poly(extend(u.pts, u.startFree ? 0 : 1, u.endFree ? 0 : 1), '#fff', BW);
     }
+
+    // hidden lines: the edges and end of any part of the bar that lies under a later part, dotted through it
+    const defs = el('defs', {});
+    g.appendChild(defs);
+    const ptsAttr = pts => pts.map(q => q.map(v => v.toFixed(2)).join(',')).join(' ');
+    const offsetPoly = (pts, off) => pts.map((q, j) => {
+      const a = pts[Math.max(0, j - 1)], b = pts[Math.min(pts.length - 1, j + 1)];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      return [q[0] - (b[1] - a[1]) / L * off, q[1] + (b[0] - a[0]) / L * off];
+    });
+    const half = BW / 2 + OUT / 2;
+    units.forEach((u, k) => {
+      if (u.skip) return;
+      const later = units.filter(v => v.z > u.z && !v.skip);
+      if (!later.length) return;
+      const m = el('mask', { id: `hm${k}`, maskUnits: 'userSpaceOnUse', x: 0, y: 0, width: W, height: H });
+      for (const v of later) m.appendChild(el('polyline', {
+        points: ptsAttr(extend(v.pts, v.startFree ? 0 : 1, v.endFree ? 0 : 1)),
+        fill: 'none', stroke: '#fff', 'stroke-width': BW, 'stroke-linejoin': 'round', 'stroke-linecap': 'butt',
+      }));
+      defs.appendChild(m);
+      const grp = el('g', { mask: `url(#hm${k})`, class: 'hidden' });
+      for (const side of [half, -half]) grp.appendChild(el('polyline', { points: ptsAttr(offsetPoly(u.pts, side)), fill: 'none' }));
+      const cap = (p, q) => {
+        const L = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1, nx = -(q[1] - p[1]) / L * half, ny = (q[0] - p[0]) / L * half;
+        return el('line', { x1: p[0] + nx, y1: p[1] + ny, x2: p[0] - nx, y2: p[1] - ny });
+      };
+      if (u.startFree) grp.appendChild(cap(u.pts[0], u.pts[1]));
+      if (u.endFree) grp.appendChild(cap(u.pts[u.pts.length - 1], u.pts[u.pts.length - 2]));
+      g.appendChild(grp);
+    });
 
     // labels
     const cx = ox + (box.minX + box.maxX) / 2, cy = oy - (box.minY + box.maxY) / 2;

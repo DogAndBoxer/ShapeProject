@@ -48,6 +48,10 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 
 Both are the same shape rotated. Rotate turns the view in 90° steps.
 
+The bar is drawn as a hollow outline with later segments in front of earlier ones. Where an earlier part
+of the bar lies under a later part, its edges and its end show as dotted hidden lines through the bar in
+front.
+
 ### Shape code (NSS)
 
 ```
