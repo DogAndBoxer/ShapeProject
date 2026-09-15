@@ -52,6 +52,10 @@ The bar is drawn as a hollow outline with later segments in front of earlier one
 of the bar lies under a later part, its edges and its end show as dotted hidden lines through the bar in
 front.
 
+Hovering a segment length on the drawing shows the dimension it means: a dimension line parallel to the
+segment with extension lines at its reference points, the bar end or the virtual corner on the outside of
+the adjacent bend.
+
 ### Shape code (NSS)
 
 ```

@@ -152,6 +152,8 @@
   svg text.leg { font-size: 15px; font-weight: 650; fill: var(--ink); }
   svg text.leg.red { fill: var(--red); }
   svg text.leg.amber { fill: var(--amber); }
+  svg text.leg { cursor: default; pointer-events: all; }
+  svg text.leg.hl { fill: var(--dim); }
   svg text.ang { font-size: 12px; fill: var(--muted); }
   svg text.dim { font-size: 12px; fill: var(--dim); }
   svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
@@ -525,6 +527,7 @@
     // labels
     const cx = ox + (box.minX + box.maxX) / 2, cy = oy - (box.minY + box.maxY) / 2;
     const placed = [];
+    const hoverOff = () => { const hg = g.querySelector('#hover'); if (hg) hg.remove(); };
     path.pieces.forEach((pc, k) => {
       if (pc.type === 'leg') {
         const leg = an.legs[pc.i];
@@ -552,10 +555,32 @@
           if (!clash(tx, ty)) { lx = tx; ly = ty; break; }
         }
         placed.push({ x: lx, y: ly, w: bw });
-        g.appendChild(el('text', {
+        const label = el('text', {
           x: lx.toFixed(1), y: ly.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle',
           class: 'leg' + (an.legs[pc.i].short ? ' red' : pc.clamped ? ' amber' : ''),
-        }, text));
+        }, text);
+        g.appendChild(label);
+        // hover: show the out-to-out dimension this number means, with extension lines at its reference points
+        const refPoint = (p, nb, dirSign) => {
+          if (!nb || nb.type !== 'arc') return p;                       // free end: the bar end
+          const c = S(nb.c), nl = [-d[1], d[0]];
+          const side = Math.sign((p[0] - c[0]) * nl[0] + (p[1] - c[1]) * nl[1]) || 1;   // outside of that bend
+          const sb = an.setbacks[nb.i] * scale;
+          return [p[0] + nl[0] * side * path.halfW - d[0] * dirSign * sb, p[1] + nl[1] * side * path.halfW - d[1] * dirSign * sb];
+        };
+        const q0 = refPoint(p0, path.pieces[k - 1], 1), q1 = refPoint(p1, path.pieces[k + 1], -1);
+        const away = [-n[0], -n[1]], dist = path.halfW + 24;
+        label.addEventListener('mouseenter', () => {
+          hoverOff();
+          const hg = el('g', { id: 'hover' });
+          const proj = q => { const t = (q[0] - m[0]) * d[0] + (q[1] - m[1]) * d[1]; return [m[0] + d[0] * t + away[0] * dist, m[1] + d[1] * t + away[1] * dist]; };
+          const a = proj(q0), b = proj(q1);
+          for (const [q, r] of [[q0, a], [q1, b]]) hg.appendChild(el('line', { x1: q[0], y1: q[1], x2: r[0] + away[0] * 6, y2: r[1] + away[1] * 6, class: 'ext' }));
+          hg.appendChild(el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: 'dimline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
+          g.appendChild(hg);
+          label.classList.add('hl');
+        });
+        label.addEventListener('mouseleave', () => { hoverOff(); label.classList.remove('hl'); });
       } else if (pc.type === 'arcseg') {
         const leg = an.legs[pc.i];
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
