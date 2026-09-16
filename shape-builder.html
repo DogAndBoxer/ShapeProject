@@ -148,6 +148,7 @@
     padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: #fff;
   }
   footer .note { color: var(--muted); font-size: 12px; width: 100%; }
+  footer .build { color: var(--ink); font-weight: 600; }
   svg text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   svg text.leg { font-size: 15px; font-weight: 650; fill: var(--ink); }
   svg text.leg.red { fill: var(--red); }
@@ -222,7 +223,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note">NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-09-16 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
