@@ -36,8 +36,8 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 - **Arc segments** (radius bends, rings, arches). The ⌒ button on a segment row makes it an arc. The row's
   length becomes the cut length (centreline) and a sub-row takes the outside radius and a direction. Chord,
   drop and angle are calculated, shown beside the radius, listed in the stats, and drawn on the shape in
-  green with the chord as a dashed line and the drop as a dimension to the apex. The chord is measured on
-  the inside face; the drop is from that chord line to the outside of the bar at the apex. Adjacent straights are dimensioned to the tangent points. A ring is an arc whose angle comes
+  green with the chord as a dashed line and the drop as a dimension to the apex. Chord and drop are both on
+  the outside face: the chord between the arc's ends, the drop from that chord line to the apex. Adjacent straights are dimensioned to the tangent points. A ring is an arc whose angle comes
   out at 360. The code carries the standard's centreline `r` and cut length `l`.
 
 ### Views
