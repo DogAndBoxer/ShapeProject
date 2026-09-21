@@ -22,7 +22,12 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 - **Start and end treatments.** An end segment is treated as a hook or cog when its bend is 90 or more and
   it is shorter than the segment it joins. Segment 1 is the first segment that is not a treatment.
   This is a heuristic; replace it if the business writes a rule.
-- **Bend geometry** comes from bar diameter `d` and pin diameter `p`:
+- **Actual bar diameter.** All geometry uses the over-ribs diameter of the deformed bar, not the nominal
+  size: by default nominal × 1.15 (rib height 7.5% of nominal each side, the middle of the 5 to 10% tolerance),
+  so N20 is 23 mm. The Actual Ø field overrides it. This matches the scheduling software, which was
+  verified on an N20 arc: outside radius 750, cut length 1159, chord 1060, drop 219. The nominal size
+  still labels the bar and sets the default pin.
+- **Bend geometry** comes from actual bar diameter `d` and pin diameter `p`:
   outside radius `Ro = p/2 + d`, centreline radius `R = p/2 + d/2`. The standard does not cover these;
   they are production settings.
 - **Corner setback** for a bend of angle θ is `Ro·tan(θ/2)`; a 180 hook uses `Ro`. A segment's straight

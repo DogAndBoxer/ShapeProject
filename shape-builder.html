@@ -173,6 +173,9 @@
     <option value="6"><option value="8"><option value="10"><option value="12"><option value="16">
     <option value="20"><option value="24"><option value="28"><option value="32"><option value="36"><option value="40">
   </datalist>
+  <label>Actual Ø <input id="actual" type="number" min="3" step="0.1"> mm
+    <button id="actualReset" class="link" title="Reset to nominal plus ribs: nominal × 1.15">auto</button>
+  </label>
   <label>Pin Ø <input id="pin" type="number" min="1" step="1"> mm
     <button id="pinReset" class="link" title="Reset pin to the default for this bar size">auto</button>
   </label>
@@ -223,20 +226,23 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-09-16 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-09-21 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
 (() => {
   'use strict';
   const $ = s => document.querySelector(s);
-  const PIN_RATIO = 4;           // default pin diameter as a multiple of bar diameter
+  const PIN_RATIO = 4;           // default pin diameter as a multiple of nominal bar diameter
+  const RIB_FACTOR = 1.15;       // deformed bar over the ribs: nominal × 1.15 (rib height 7.5% of nominal each side)
+  const actualOf = g => Math.round(g * RIB_FACTOR * 10) / 10;
   const MIN_PX = 14;             // shortest a straight segment is drawn, for legibility
   const ARC_STEP_DEG = 4;
   const HOOK_WARN_ABOVE = 165;   // angles above this and below 180 have no usable virtual corner
 
   const st = {
     gauge: 12, pin: 48, pinAuto: true,
+    actual: 13.8, actualAuto: true,   // over-ribs diameter used for all geometry; default nominal × RIB_FACTOR
     legs: [250, 1000, 500],      // out-to-out segment lengths (arc length for arc segments)
     arcs: [null, null, null],    // null = straight; else {Ro: outside radius, d: +1 clockwise forward}
     bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],  // a = bend angle, d = +1 up (clockwise forward), -1 down
@@ -263,7 +269,7 @@
   }
 
   function analyse() {
-    const d = st.gauge || 0, pin = st.pin || 0, n = st.legs.length;
+    const d = st.actual || 0, pin = st.pin || 0, n = st.legs.length;
     const Ro = pin / 2 + d;        // outside radius of the bend
     const R = pin / 2 + d / 2;     // centreline radius
     const setbacks = st.bends.map(b => {
@@ -294,7 +300,7 @@
     const overall = legs.reduce((s, l) => s + (l.L || 0), 0);
     const warnings = [];
     legs.forEach((l, i) => {
-      if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} bar on a Ø${pin} pin).` });
+      if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} actual bar on a Ø${pin} pin).` });
       if (l.badArc) warnings.push({ cls: 'red', text: `Segment ${i + 1}: outside radius must be larger than the bar.` });
       else if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs cut length and outside radius.` });
       else if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
@@ -634,6 +640,7 @@
       ['Cut length', fmt(an.developed) + ' mm'],
       ['Overall', `${fmt(box.w)} × ${fmt(box.h)} mm`],
       ['Bends', String(st.bends.length)],
+      ['Bar', `N${st.gauge} · Ø${an.d} actual`],
       ['Bend radius', `Ro ${fmt(an.Ro)} · CL ${fmt(an.R)} mm`],
       ['Status', st.cut ? 'Cut' : 'Open'],
     ];
@@ -725,7 +732,7 @@
   function toCode() {
     const parts = [];
     st.legs.forEach((L, i) => {
-      const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
+      const a = st.arcs[i], sol = a ? solveArc(a, L, st.actual || 0) : null;
       if (sol && !sol.bad) { parts.push('r' + Math.round((a.d >= 0 ? 1 : -1) * sol.Rcl)); parts.push('l' + Math.round(L)); }
       else parts.push('l' + (L == null ? '0' : Math.round(L)));
       if (i < st.bends.length) parts.push('w' + numStr(clampAngle(st.bends[i].a) * (st.bends[i].d > 0 ? 1 : -1)));
@@ -737,7 +744,7 @@
     const toks = String(code).trim().split(/[\s,]+/).filter(Boolean);
     if (!toks.length) return null;
     const legs = [], arcs = [], bends = [];
-    const dBar = st.gauge || 0;
+    const dBar = st.actual || 0;
     if (/^[lwr]/i.test(toks[0])) {
       let pendingR = null;
       for (const t0 of toks) {
@@ -779,9 +786,9 @@
   function toJSON() {
     return JSON.stringify({
       standard: 'IBR-SDS-001',
-      gauge: st.gauge, pin: st.pin,
+      gauge: st.gauge, actualDiameter: st.actual, pin: st.pin,
       segments: st.legs.map((L, i) => {
-        const a = st.arcs[i], sol = a ? solveArc(a, L, st.gauge || 0) : null;
+        const a = st.arcs[i], sol = a ? solveArc(a, L, st.actual || 0) : null;
         if (!sol || sol.bad) return { length: L };
         const c = sol.calc;
         return { cutLength: Math.round(L), outsideRadius: Math.round(sol.Ro), centrelineRadius: Math.round(sol.Rcl), chord: Math.round(c.chord), drop: Math.round(c.drop), angle: Math.round(c.angle * 100) / 100, direction: a.d > 0 ? 'up' : 'down' };
@@ -790,11 +797,13 @@
       cut: st.cut, code: toCode(),
     }, null, 2);
   }
-  const toHash = () => `#g=${st.gauge}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}&s=${encodeURIComponent(toCode())}`;
+  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}&s=${encodeURIComponent(toCode())}`;
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
     if (num(q.get('g'))) st.gauge = num(q.get('g'));
+    if (num(q.get('a'))) { st.actual = num(q.get('a')); st.actualAuto = false; }
+    else { st.actual = actualOf(st.gauge); st.actualAuto = true; }
     const parsed = q.get('s') ? parseCode(q.get('s')) : null;
     if (!parsed) return false;
     Object.assign(st, parsed);
@@ -879,13 +888,16 @@
     }
   });
 
-  const gaugeInp = $('#gauge'), pinInp = $('#pin');
-  function syncHeader() { gaugeInp.value = st.gauge; pinInp.value = st.pin; }
+  const gaugeInp = $('#gauge'), pinInp = $('#pin'), actualInp = $('#actual');
+  function syncHeader() { gaugeInp.value = st.gauge; actualInp.value = st.actual; pinInp.value = st.pin; }
   gaugeInp.addEventListener('input', () => {
     st.gauge = num(gaugeInp.value) || 0;
     if (st.pinAuto) { st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; }
+    if (st.actualAuto) { st.actual = actualOf(st.gauge); actualInp.value = st.actual; }
     onChange();
   });
+  actualInp.addEventListener('input', () => { st.actual = num(actualInp.value) || 0; st.actualAuto = false; onChange(); });
+  $('#actualReset').addEventListener('click', () => { st.actualAuto = true; st.actual = actualOf(st.gauge); actualInp.value = st.actual; onChange(); });
   pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
   $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
   $('#newShape').addEventListener('click', () => { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
