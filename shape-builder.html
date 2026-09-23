@@ -161,6 +161,12 @@
   svg .ext { stroke: var(--dim); stroke-width: .75; opacity: .6; }
   svg .arcdim { stroke: var(--arc); stroke-width: 1; stroke-dasharray: 5 3; fill: none; }
   svg .hidden polyline, svg .hidden line { stroke: #111; stroke-width: 1.25; stroke-dasharray: 2 2.5; fill: none; }
+  svg.ruler { cursor: crosshair; }
+  svg .rsnap { fill: #fff; stroke: var(--dim); stroke-width: 1.5; }
+  svg .rpt { fill: var(--dim); stroke: #fff; stroke-width: 1.5; }
+  svg .rline { stroke: var(--dim); stroke-width: 1.25; }
+  svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+  svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
 </style>
 </head>
@@ -202,6 +208,7 @@
         <button id="viewMach" title="Last segment flat, as drawn on the machine screen">Machine</button>
       </span>
       <button id="rotate" title="Rotate the view 90°">⟳ Rotate</button>
+      <button id="rulerBtn" title="Measure between two points on the bar. Click two points; Esc clears.">📏 Ruler</button>
     </div>
     <div id="empty" hidden>Enter a segment length to start.</div>
     <svg id="svg" xmlns="http://www.w3.org/2000/svg">
@@ -226,7 +233,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-09-21 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-09-23 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -449,6 +456,61 @@
   };
   let lastClamped = new Set();
 
+  // ---------- ruler ----------
+  let frame = null, rulerOn = false, rulerA = null, rulerB = null;
+  function nearestSnap(mx, my) {
+    if (!frame) return null;
+    let best = null, bd = 10;
+    for (const p of frame.snapPts) { const dd = Math.hypot(p[0] - mx, p[1] - my); if (dd < bd) { bd = dd; best = p; } }
+    if (best) return best;
+    bd = 18;
+    for (const [a, b] of frame.snapSegs) {
+      const abx = b[0] - a[0], aby = b[1] - a[1], L2 = abx * abx + aby * aby || 1;
+      const t = Math.max(0, Math.min(1, ((mx - a[0]) * abx + (my - a[1]) * aby) / L2));
+      const q = [a[0] + abx * t, a[1] + aby * t], dd = Math.hypot(q[0] - mx, q[1] - my);
+      if (dd < bd) { bd = dd; best = q; }
+    }
+    return best;
+  }
+  function drawRuler(hoverPt) {
+    const old = g.querySelector('#ruler');
+    if (old) old.remove();
+    if (!rulerOn || !frame) return;
+    const rg = el('g', { id: 'ruler' });
+    const dot = (p, cls) => rg.appendChild(el('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 4, class: cls }));
+    const bPt = rulerB || (rulerA && hoverPt) || null;
+    if (rulerA && bPt) {
+      rg.appendChild(el('line', { x1: rulerA[0], y1: rulerA[1], x2: bPt[0], y2: bPt[1], class: 'rline' }));
+      dot(rulerA, 'rpt'); dot(bPt, rulerB ? 'rpt' : 'rsnap');
+      const dx = (bPt[0] - rulerA[0]) / frame.scale, dy = (bPt[1] - rulerA[1]) / frame.scale, dist = Math.hypot(dx, dy);
+      const m = [(rulerA[0] + bPt[0]) / 2, (rulerA[1] + bPt[1]) / 2];
+      const L = Math.hypot(bPt[0] - rulerA[0], bPt[1] - rulerA[1]) || 1;
+      let n = [-(bPt[1] - rulerA[1]) / L, (bPt[0] - rulerA[0]) / L];
+      if (n[1] > 0) n = [-n[0], -n[1]];   // label above the line
+      const tx = m[0] + n[0] * 26, ty = m[1] + n[1] * 26 - 6;
+      rg.appendChild(el('text', { x: tx.toFixed(1), y: ty.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rtext' }, `${fmt(dist)}${frame.approx ? ' ≈' : ''}`));
+      rg.appendChild(el('text', { x: tx.toFixed(1), y: (ty + 15).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rsub' }, `ΔX ${fmt(Math.abs(dx))} · ΔY ${fmt(Math.abs(dy))}`));
+    } else if (rulerA) { dot(rulerA, 'rpt'); if (hoverPt) dot(hoverPt, 'rsnap'); }
+    else if (hoverPt) dot(hoverPt, 'rsnap');
+    g.appendChild(rg);
+  }
+  const svgPoint = e => { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+  svg.addEventListener('mousemove', e => { if (!rulerOn) return; const [x, y] = svgPoint(e); drawRuler(nearestSnap(x, y)); });
+  svg.addEventListener('mouseleave', () => { if (rulerOn) drawRuler(null); });
+  svg.addEventListener('click', e => {
+    if (!rulerOn) return;
+    const [x, y] = svgPoint(e), p = nearestSnap(x, y);
+    if (!p) return;
+    if (!rulerA || rulerB) { rulerA = p; rulerB = null; } else rulerB = p;
+    drawRuler(p);
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && rulerOn) { rulerA = rulerB = null; drawRuler(null); } });
+  $('#rulerBtn').addEventListener('click', () => {
+    rulerOn = !rulerOn; rulerA = rulerB = null;
+    svg.classList.toggle('ruler', rulerOn); $('#rulerBtn').classList.toggle('on', rulerOn);
+    drawRuler(null);
+  });
+
   function renderDrawing(an) {
     const W = svg.clientWidth || 600, H = svg.clientHeight || 400;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -530,6 +592,38 @@
       if (u.endFree) grp.appendChild(cap(u.pts[u.pts.length - 1], u.pts[u.pts.length - 2]));
       g.appendChild(grp);
     });
+
+    // ruler snap geometry: bar edges and end faces to slide along; corners, tangent points, virtual corners and
+    // apexes to snap onto
+    const snapSegs = [], snapPts = [], hw = path.halfW;
+    path.pieces.forEach((pc, k) => {
+      if (pc.type === 'leg') {
+        const p0 = S(pc.p0), p1 = S(pc.p1), dv = SV(pc.dir);
+        if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 0.01) return;
+        const nn = [-dv[1] * hw, dv[0] * hw];
+        const a1 = [p0[0] + nn[0], p0[1] + nn[1]], a2 = [p1[0] + nn[0], p1[1] + nn[1]], b1 = [p0[0] - nn[0], p0[1] - nn[1]], b2 = [p1[0] - nn[0], p1[1] - nn[1]];
+        snapSegs.push([a1, a2], [b1, b2]); snapPts.push(a1, a2, b1, b2);
+        if (k === 0) snapSegs.push([a1, b1]);
+        if (k === path.pieces.length - 1) snapSegs.push([a2, b2]);
+        const vc = (p, nb, sgn) => {
+          const c = S(nb.c), nl = [-dv[1], dv[0]];
+          const side = Math.sign((p[0] - c[0]) * nl[0] + (p[1] - c[1]) * nl[1]) || 1, sb = an.setbacks[nb.i] * scale;
+          return [p[0] + nl[0] * side * hw - dv[0] * sgn * sb, p[1] + nl[1] * side * hw - dv[1] * sgn * sb];
+        };
+        if (k > 0 && path.pieces[k - 1].type === 'arc') snapPts.push(vc(p0, path.pieces[k - 1], 1));
+        if (k < path.pieces.length - 1 && path.pieces[k + 1].type === 'arc') snapPts.push(vc(p1, path.pieces[k + 1], -1));
+      } else {
+        const c = S(pc.c), o = SV(pc.out);
+        for (const rr of [pc.r + hw, pc.r - hw]) {
+          if (rr <= 0.5) continue;
+          const pts = pc.pts.map(q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * rr / L, c[1] + vy * rr / L]; });
+          for (let j = 1; j < pts.length; j++) snapSegs.push([pts[j - 1], pts[j]]);
+          snapPts.push([c[0] + o[0] * rr, c[1] + o[1] * rr]);
+        }
+      }
+    });
+    frame = { scale, snapSegs, snapPts, approx: lastClamped.size > 0 };
+    drawRuler(null);
 
     // labels
     const cx = ox + (box.minX + box.maxX) / 2, cy = oy - (box.minY + box.maxY) / 2;
@@ -815,6 +909,7 @@
 
   // ---------- update cycle ----------
   function onChange() {
+    rulerA = rulerB = null;
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);

@@ -61,6 +61,10 @@ Hovering a segment length on the drawing shows the dimension it means: a dimensi
 segment with extension lines at its reference points, the bar end or the virtual corner on the outside of
 the adjacent bend.
 
+The Ruler button measures between any two points on the bar. The cursor snaps to the bar's edges and end
+faces, and preferentially to bar-end corners, tangent points, virtual corners and bend apexes. Click two
+points to get the straight-line distance with its horizontal and vertical components. Escape clears.
+
 ### Shape code (NSS)
 
 ```
