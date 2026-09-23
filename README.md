@@ -63,7 +63,10 @@ the adjacent bend.
 
 The Ruler button measures between any two points on the bar. The cursor snaps to the bar's edges and end
 faces, and preferentially to bar-end corners, tangent points, virtual corners and bend apexes. Click two
-points to get the straight-line distance with its horizontal and vertical components. Escape clears.
+points to get the straight-line distance with its horizontal and vertical components. Once the first point
+is set, dashed guide lines appear through it: horizontal, vertical, and the extension of any straight edge
+that ends there. The second point can snap to where a guide crosses any edge or its extension, or anywhere
+along a guide, so square distances between points that don't line up can be measured. Escape clears.
 
 ### Shape code (NSS)
 

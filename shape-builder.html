@@ -165,6 +165,7 @@
   svg .rsnap { fill: #fff; stroke: var(--dim); stroke-width: 1.5; }
   svg .rpt { fill: var(--dim); stroke: #fff; stroke-width: 1.5; }
   svg .rline { stroke: var(--dim); stroke-width: 1.25; }
+  svg .rguide { stroke: var(--dim); stroke-width: .75; stroke-dasharray: 6 4; opacity: .45; }
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
@@ -458,18 +459,51 @@
 
   // ---------- ruler ----------
   let frame = null, rulerOn = false, rulerA = null, rulerB = null;
+  // Guide lines once the first point is set: horizontal and vertical through it, plus the extension of any
+  // straight edge that ends there. Each is {p, d} with d a unit direction.
+  function guideLines() {
+    if (!frame || !rulerA) return [];
+    const lines = [{ p: rulerA, d: [1, 0] }, { p: rulerA, d: [0, 1] }];
+    for (const sg of frame.snapSegs) {
+      if (!sg.ext) continue;
+      const near = q => Math.hypot(q[0] - rulerA[0], q[1] - rulerA[1]) < 1.5;
+      if (near(sg.a) || near(sg.b)) {
+        const L = Math.hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]) || 1;
+        const d = [(sg.b[0] - sg.a[0]) / L, (sg.b[1] - sg.a[1]) / L];
+        if (!lines.some(l => Math.abs(l.d[0] * d[1] - l.d[1] * d[0]) < 1e-3)) lines.push({ p: rulerA, d });
+      }
+    }
+    return lines;
+  }
+  // intersection of guide line with a segment's line; accepted on the segment, or within 400 px of it if extendable
+  function lineSegHit(ln, sg) {
+    const ex = sg.b[0] - sg.a[0], ey = sg.b[1] - sg.a[1];
+    const den = ln.d[0] * ey - ln.d[1] * ex;
+    if (Math.abs(den) < 1e-6) return null;
+    const wx = sg.a[0] - ln.p[0], wy = sg.a[1] - ln.p[1];
+    const u = (wx * ey - wy * ex) / den;            // along the guide
+    const t = (wx * ln.d[1] - wy * ln.d[0]) / den;  // along the segment, 0..1 on it
+    const segL = Math.hypot(ex, ey) || 1;
+    if (t < -0.01 || t > 1.01) { if (!sg.ext) return null; const over = (t < 0 ? -t : t - 1) * segL; if (over > 400) return null; }
+    return [ln.p[0] + ln.d[0] * u, ln.p[1] + ln.d[1] * u];
+  }
   function nearestSnap(mx, my) {
     if (!frame) return null;
+    const lines = guideLines();
     let best = null, bd = 10;
-    for (const p of frame.snapPts) { const dd = Math.hypot(p[0] - mx, p[1] - my); if (dd < bd) { bd = dd; best = p; } }
+    const consider = (p, tol) => { const dd = Math.hypot(p[0] - mx, p[1] - my); if (dd < tol && dd < bd) { bd = dd; best = p; } };
+    for (const p of frame.snapPts) consider(p, 10);
+    for (const ln of lines) for (const sg of frame.snapSegs) { const h = lineSegHit(ln, sg); if (h) consider(h, 10); }
     if (best) return best;
     bd = 18;
-    for (const [a, b] of frame.snapSegs) {
-      const abx = b[0] - a[0], aby = b[1] - a[1], L2 = abx * abx + aby * aby || 1;
-      const t = Math.max(0, Math.min(1, ((mx - a[0]) * abx + (my - a[1]) * aby) / L2));
-      const q = [a[0] + abx * t, a[1] + aby * t], dd = Math.hypot(q[0] - mx, q[1] - my);
-      if (dd < bd) { bd = dd; best = q; }
+    for (const sg of frame.snapSegs) {
+      const abx = sg.b[0] - sg.a[0], aby = sg.b[1] - sg.a[1], L2 = abx * abx + aby * aby || 1;
+      const t = Math.max(0, Math.min(1, ((mx - sg.a[0]) * abx + (my - sg.a[1]) * aby) / L2));
+      consider([sg.a[0] + abx * t, sg.a[1] + aby * t], 18);
     }
+    if (best) return best;
+    bd = 12;
+    for (const ln of lines) { const u = (mx - ln.p[0]) * ln.d[0] + (my - ln.p[1]) * ln.d[1]; consider([ln.p[0] + ln.d[0] * u, ln.p[1] + ln.d[1] * u], 12); }
     return best;
   }
   function drawRuler(hoverPt) {
@@ -478,6 +512,10 @@
     if (!rulerOn || !frame) return;
     const rg = el('g', { id: 'ruler' });
     const dot = (p, cls) => rg.appendChild(el('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 4, class: cls }));
+    if (rulerA && !rulerB) for (const ln of guideLines()) rg.appendChild(el('line', {
+      x1: (ln.p[0] - ln.d[0] * 4000).toFixed(1), y1: (ln.p[1] - ln.d[1] * 4000).toFixed(1),
+      x2: (ln.p[0] + ln.d[0] * 4000).toFixed(1), y2: (ln.p[1] + ln.d[1] * 4000).toFixed(1), class: 'rguide',
+    }));
     const bPt = rulerB || (rulerA && hoverPt) || null;
     if (rulerA && bPt) {
       rg.appendChild(el('line', { x1: rulerA[0], y1: rulerA[1], x2: bPt[0], y2: bPt[1], class: 'rline' }));
@@ -602,9 +640,9 @@
         if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) < 0.01) return;
         const nn = [-dv[1] * hw, dv[0] * hw];
         const a1 = [p0[0] + nn[0], p0[1] + nn[1]], a2 = [p1[0] + nn[0], p1[1] + nn[1]], b1 = [p0[0] - nn[0], p0[1] - nn[1]], b2 = [p1[0] - nn[0], p1[1] - nn[1]];
-        snapSegs.push([a1, a2], [b1, b2]); snapPts.push(a1, a2, b1, b2);
-        if (k === 0) snapSegs.push([a1, b1]);
-        if (k === path.pieces.length - 1) snapSegs.push([a2, b2]);
+        snapSegs.push({ a: a1, b: a2, ext: true }, { a: b1, b: b2, ext: true }); snapPts.push(a1, a2, b1, b2);
+        if (k === 0) snapSegs.push({ a: a1, b: b1, ext: true });
+        if (k === path.pieces.length - 1) snapSegs.push({ a: a2, b: b2, ext: true });
         const vc = (p, nb, sgn) => {
           const c = S(nb.c), nl = [-dv[1], dv[0]];
           const side = Math.sign((p[0] - c[0]) * nl[0] + (p[1] - c[1]) * nl[1]) || 1, sb = an.setbacks[nb.i] * scale;
@@ -617,7 +655,7 @@
         for (const rr of [pc.r + hw, pc.r - hw]) {
           if (rr <= 0.5) continue;
           const pts = pc.pts.map(q => { const p = S(q); const vx = p[0] - c[0], vy = p[1] - c[1], L = Math.hypot(vx, vy) || 1; return [c[0] + vx * rr / L, c[1] + vy * rr / L]; });
-          for (let j = 1; j < pts.length; j++) snapSegs.push([pts[j - 1], pts[j]]);
+          for (let j = 1; j < pts.length; j++) snapSegs.push({ a: pts[j - 1], b: pts[j], ext: false });
           snapPts.push([c[0] + o[0] * rr, c[1] + o[1] * rr]);
         }
       }
