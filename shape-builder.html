@@ -530,8 +530,17 @@
       x1: (ln.p[0] - ln.d[0] * span).toFixed(1), y1: (ln.p[1] - ln.d[1] * span).toFixed(1),
       x2: (ln.p[0] + ln.d[0] * span).toFixed(1), y2: (ln.p[1] + ln.d[1] * span).toFixed(1), class: cls,
     }));
+    const hv = (p, cls) => { guide({ p, d: [1, 0] }, 4000, cls); guide({ p, d: [0, 1] }, 4000, cls); };
+    const onBar = p => frame.snapSegs.some(sg => {
+      const abx = sg.b[0] - sg.a[0], aby = sg.b[1] - sg.a[1], L2 = abx * abx + aby * aby || 1;
+      const t = Math.max(0, Math.min(1, ((p[0] - sg.a[0]) * abx + (p[1] - sg.a[1]) * aby) / L2));
+      return Math.hypot(sg.a[0] + abx * t - p[0], sg.a[1] + aby * t - p[1]) < 1;
+    });
     if (rulerA && !rulerB) for (const ln of guideLines()) guide(ln, 4000, 'rguide');
-    if (!rulerB && hoverPt) for (const ln of linesThrough(hoverPt)) guide(ln, ln.span, 'rsnapline');
+    if (!rulerB && hoverPt) {
+      hv(hoverPt, 'rsnapline');
+      if (!onBar(hoverPt)) for (const ln of linesThrough(hoverPt)) if (Math.abs(ln.d[0]) > 1e-3 && Math.abs(ln.d[1]) > 1e-3) guide(ln, ln.span, 'rsnapline');
+    }
     const bPt = rulerB || (rulerA && hoverPt) || null;
     if (rulerA && bPt) {
       rg.appendChild(el('line', { x1: rulerA[0], y1: rulerA[1], x2: bPt[0], y2: bPt[1], class: 'rline' }));
@@ -540,10 +549,23 @@
       const m = [(rulerA[0] + bPt[0]) / 2, (rulerA[1] + bPt[1]) / 2];
       const L = Math.hypot(bPt[0] - rulerA[0], bPt[1] - rulerA[1]) || 1;
       let n = [-(bPt[1] - rulerA[1]) / L, (bPt[0] - rulerA[0]) / L];
-      if (n[1] > 0) n = [-n[0], -n[1]];   // label above the line
-      const tx = m[0] + n[0] * 26, ty = m[1] + n[1] * 26 - 6;
-      rg.appendChild(el('text', { x: tx.toFixed(1), y: ty.toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rtext' }, `${fmt(dist)}${frame.approx ? ' ≈' : ''}`));
-      rg.appendChild(el('text', { x: tx.toFixed(1), y: (ty + 15).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rsub' }, `ΔX ${fmt(Math.abs(dx))} · ΔY ${fmt(Math.abs(dy))}`));
+      if (n[1] > 0) n = [-n[0], -n[1]];
+      rg.appendChild(el('text', { x: (m[0] + n[0] * 16).toFixed(1), y: (m[1] + n[1] * 16).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rtext' }, `${fmt(dist)}${frame.approx ? ' ≈' : ''}`));
+      if (rulerB) {
+        // ordinate view: verticals and horizontals through both points, components dimensioned between them
+        hv(rulerA, 'rguide'); hv(rulerB, 'rguide');
+        const sdx = Math.abs(bPt[0] - rulerA[0]), sdy = Math.abs(bPt[1] - rulerA[1]);
+        if (sdx > 2 && sdy > 2) {
+          const top = Math.min(rulerA[1], bPt[1]) - 34;
+          rg.appendChild(el('line', { x1: rulerA[0], y1: top, x2: bPt[0], y2: top, class: 'rline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
+          rg.appendChild(el('text', { x: ((rulerA[0] + bPt[0]) / 2).toFixed(1), y: (top - 9).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rtext' }, `${fmt(Math.abs(dx))} across`));
+          const right = Math.max(rulerA[0], bPt[0]) + 34;
+          rg.appendChild(el('line', { x1: right, y1: rulerA[1], x2: right, y2: bPt[1], class: 'rline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
+          rg.appendChild(el('text', { x: (right + 8).toFixed(1), y: ((rulerA[1] + bPt[1]) / 2).toFixed(1), 'dominant-baseline': 'middle', class: 'rtext' }, `${fmt(Math.abs(dy))} up`));
+        }
+      } else {
+        rg.appendChild(el('text', { x: (m[0] + n[0] * 16).toFixed(1), y: (m[1] + n[1] * 16 + 15).toFixed(1), 'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'rsub' }, `${fmt(Math.abs(dx))} across · ${fmt(Math.abs(dy))} up`));
+      }
     } else if (rulerA) { dot(rulerA, 'rpt'); if (hoverPt) dot(hoverPt, 'rsnap'); }
     else if (hoverPt) dot(hoverPt, 'rsnap');
     g.appendChild(rg);
