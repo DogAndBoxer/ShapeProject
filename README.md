@@ -66,7 +66,9 @@ faces, and preferentially to bar-end corners, tangent points, virtual corners an
 points to get the straight-line distance with its horizontal and vertical components. Once the first point
 is set, dashed guide lines appear through it: horizontal, vertical, and the extension of any straight edge
 that ends there. The second point can snap to where a guide crosses any edge or its extension, or anywhere
-along a guide, so square distances between points that don't line up can be measured. Escape clears.
+along a guide, so square distances between points that don't line up can be measured. While a point is
+being placed, dashed lines through the snap candidate show what it is sitting on: the guide it is on and
+the line of any straight edge it is on. Escape clears.
 
 ### Shape code (NSS)
 

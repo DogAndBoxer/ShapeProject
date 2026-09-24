@@ -166,6 +166,7 @@
   svg .rpt { fill: var(--dim); stroke: #fff; stroke-width: 1.5; }
   svg .rline { stroke: var(--dim); stroke-width: 1.25; }
   svg .rguide { stroke: var(--dim); stroke-width: .75; stroke-dasharray: 6 4; opacity: .45; }
+  svg .rsnapline { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; opacity: .9; }
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
@@ -234,7 +235,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-09-23 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-09-24 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -487,6 +488,19 @@
     if (t < -0.01 || t > 1.01) { if (!sg.ext) return null; const over = (t < 0 ? -t : t - 1) * segL; if (over > 400) return null; }
     return [ln.p[0] + ln.d[0] * u, ln.p[1] + ln.d[1] * u];
   }
+  // Lines the snap candidate lies on: guides from the first point, and the line of any straight edge.
+  function linesThrough(pt) {
+    if (!frame || !pt) return [];
+    const out = [];
+    const distToLine = ln => Math.abs((pt[0] - ln.p[0]) * ln.d[1] - (pt[1] - ln.p[1]) * ln.d[0]);
+    for (const ln of guideLines()) if (distToLine(ln) < 0.75) out.push({ p: pt, d: ln.d, span: 4000 });
+    for (const sg of frame.snapSegs) {
+      if (!sg.ext) continue;
+      const L = Math.hypot(sg.b[0] - sg.a[0], sg.b[1] - sg.a[1]) || 1, d = [(sg.b[0] - sg.a[0]) / L, (sg.b[1] - sg.a[1]) / L];
+      if (distToLine({ p: sg.a, d }) < 0.75 && !out.some(l => Math.abs(l.d[0] * d[1] - l.d[1] * d[0]) < 1e-3)) out.push({ p: pt, d, span: 400 });
+    }
+    return out;
+  }
   function nearestSnap(mx, my) {
     if (!frame) return null;
     const lines = guideLines();
@@ -512,10 +526,12 @@
     if (!rulerOn || !frame) return;
     const rg = el('g', { id: 'ruler' });
     const dot = (p, cls) => rg.appendChild(el('circle', { cx: p[0].toFixed(1), cy: p[1].toFixed(1), r: 4, class: cls }));
-    if (rulerA && !rulerB) for (const ln of guideLines()) rg.appendChild(el('line', {
-      x1: (ln.p[0] - ln.d[0] * 4000).toFixed(1), y1: (ln.p[1] - ln.d[1] * 4000).toFixed(1),
-      x2: (ln.p[0] + ln.d[0] * 4000).toFixed(1), y2: (ln.p[1] + ln.d[1] * 4000).toFixed(1), class: 'rguide',
+    const guide = (ln, span, cls) => rg.appendChild(el('line', {
+      x1: (ln.p[0] - ln.d[0] * span).toFixed(1), y1: (ln.p[1] - ln.d[1] * span).toFixed(1),
+      x2: (ln.p[0] + ln.d[0] * span).toFixed(1), y2: (ln.p[1] + ln.d[1] * span).toFixed(1), class: cls,
     }));
+    if (rulerA && !rulerB) for (const ln of guideLines()) guide(ln, 4000, 'rguide');
+    if (!rulerB && hoverPt) for (const ln of linesThrough(hoverPt)) guide(ln, ln.span, 'rsnapline');
     const bPt = rulerB || (rulerA && hoverPt) || null;
     if (rulerA && bPt) {
       rg.appendChild(el('line', { x1: rulerA[0], y1: rulerA[1], x2: bPt[0], y2: bPt[1], class: 'rline' }));
