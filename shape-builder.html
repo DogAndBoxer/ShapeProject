@@ -167,6 +167,7 @@
   svg .rline { stroke: var(--dim); stroke-width: 1.25; }
   svg .rguide { stroke: var(--dim); stroke-width: .75; stroke-dasharray: 6 4; opacity: .45; }
   svg .rsnapline { stroke: var(--dim); stroke-width: 1; stroke-dasharray: 3 3; opacity: .9; }
+  svg .rtrack { stroke: var(--dim); stroke-width: 1.25; stroke-dasharray: 2 3; }
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
@@ -501,14 +502,26 @@
     }
     return out;
   }
+  let lastTrack = [];   // dashed tracking lines from key points to the current snap candidate
   function nearestSnap(mx, my) {
     if (!frame) return null;
     const lines = guideLines();
-    let best = null, bd = 10;
-    const consider = (p, tol) => { const dd = Math.hypot(p[0] - mx, p[1] - my); if (dd < tol && dd < bd) { bd = dd; best = p; } };
+    let best = null, bd = 10, track = [];
+    const consider = (p, tol, tr) => { const dd = Math.hypot(p[0] - mx, p[1] - my); if (dd < tol && dd < bd) { bd = dd; best = p; track = tr || []; } };
     for (const p of frame.snapPts) consider(p, 10);
     for (const ln of lines) for (const sg of frame.snapSegs) { const h = lineSegHit(ln, sg); if (h) consider(h, 10); }
+    // tracking: where a first-point guide crosses the vertical or horizontal through any key point
+    for (const ln of lines) for (const kp of frame.snapPts) for (const d of [[1, 0], [0, 1]]) {
+      const den = ln.d[0] * d[1] - ln.d[1] * d[0];
+      if (Math.abs(den) < 1e-6) continue;
+      const wx = kp[0] - ln.p[0], wy = kp[1] - ln.p[1];
+      const u = (wx * d[1] - wy * d[0]) / den;
+      const h = [ln.p[0] + ln.d[0] * u, ln.p[1] + ln.d[1] * u];
+      if (Math.hypot(h[0] - kp[0], h[1] - kp[1]) > 1) consider(h, 10, [[kp, h]]);
+    }
+    lastTrack = track;
     if (best) return best;
+    lastTrack = [];
     bd = 18;
     for (const sg of frame.snapSegs) {
       const abx = sg.b[0] - sg.a[0], aby = sg.b[1] - sg.a[1], L2 = abx * abx + aby * aby || 1;
@@ -539,6 +552,10 @@
     if (rulerA && !rulerB) for (const ln of guideLines()) guide(ln, 4000, 'rguide');
     if (!rulerB && hoverPt) {
       hv(hoverPt, 'rsnapline');
+      for (const [kp, h] of lastTrack) {
+        rg.appendChild(el('line', { x1: kp[0].toFixed(1), y1: kp[1].toFixed(1), x2: h[0].toFixed(1), y2: h[1].toFixed(1), class: 'rtrack' }));
+        dot(kp, 'rsnap');
+      }
       if (!onBar(hoverPt)) for (const ln of linesThrough(hoverPt)) if (Math.abs(ln.d[0]) > 1e-3 && Math.abs(ln.d[1]) > 1e-3) guide(ln, ln.span, 'rsnapline');
     }
     const bPt = rulerB || (rulerA && hoverPt) || null;

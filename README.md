@@ -68,7 +68,10 @@ is set, dashed guide lines appear through it: horizontal, vertical, and the exte
 that ends there. The second point can snap to where a guide crosses any edge or its extension, or anywhere
 along a guide, so square distances between points that don't line up can be measured. While a point is
 being placed, dashed horizontal and vertical lines through the snap candidate show its alignment, and if
-it sits off the bar on an edge's extension, that edge line too. Once both points are set the measurement
+it sits off the bar on an edge's extension, that edge line too. The second point also snaps to where a
+guide from the first point crosses the vertical or horizontal through any key point on the bar, with a
+dotted tracking line from that key point, so a point directly below a hook tip or level with a corner can be
+picked even though nothing is drawn there. Once both points are set the measurement
 is shown ordinate-style: verticals and horizontals through both points, the horizontal component
 dimensioned across the top between the verticals, the vertical component at the side, and the direct
 distance on the diagonal. Escape clears.
