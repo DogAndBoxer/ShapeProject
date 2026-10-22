@@ -33,6 +33,11 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 - **Corner setback** for a bend of angle θ is `Ro·tan(θ/2)`; a 180 hook uses `Ro`. A segment's straight
   portion is its length minus the setback at each bent end. A segment shorter than the sum of its setbacks
   is geometrically impossible and is flagged.
+- **Hook and cog bends dimension to the outside of the bend on both sides** (setback `Ro` whatever the
+  angle). The hook length runs along the hook from the bar end to the outside of the bend, square to the
+  hook; the segment the hook joins runs to the same outside face. For 90 and 180 this is identical to the
+  corner rule. For a 135 hook it is what makes a 180×130 tie with 100 hooks close at 180×130 instead of
+  running each side out to a corner nothing touches (`l100,w135,l180,w90,l130,w90,l180,w90,l130,w135,l100`).
 - **Length overall** is the sum of segment lengths, per the standard. **Cut length** is the sum of straight
   portions plus centreline arc length at each bend.
 - **Validation offsets** (standard section 4.2): Segment 1 on the straight edge, X along it and Y off it,
