@@ -236,7 +236,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-22 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-10-23 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -248,7 +248,6 @@
   const actualOf = g => Math.round(g * RIB_FACTOR * 10) / 10;
   const MIN_PX = 14;             // shortest a straight segment is drawn, for legibility
   const ARC_STEP_DEG = 4;
-  const HOOK_WARN_ABOVE = 165;   // angles above this and below 180 have no usable virtual corner
 
   const st = {
     gauge: 12, pin: 48, pinAuto: true,
@@ -289,13 +288,13 @@
     const startTreat = n >= 2 && has(0) && has(1) && clampAngle(st.bends[0].a) >= 90 && rawL[0] < rawL[1];
     const endTreat = n >= 2 && has(n - 1) && has(n - 2) && clampAngle(st.bends[n - 2].a) >= 90 && rawL[n - 1] < rawL[n - 2];
     const seg1 = startTreat ? 1 : 0;
-    const isTreatBend = i => (i === 0 && startTreat) || (i === n - 2 && endTreat);
-    // Setback from the out-to-out length to the start of the bend. Ordinary bends dimension to the virtual
-    // corner; a 180 bend and the bend of a hook or cog dimension to the outside of the bend on both sides,
-    // so a 135 hook's segments do not run out to a corner that nothing touches.
-    const setbacks = st.bends.map((b, i) => {
+    // Setback from the out-to-out length to the start of the bend. A bend under 90 dimensions to the virtual
+    // corner (intersection of the outside edges). A bend of 90 or more dimensions each leg to the furthest
+    // point of the bend in that leg's direction, which is Ro past the end of the straight: a length is never
+    // measured to a point that is not on the bar. The two agree at 90.
+    const setbacks = st.bends.map(b => {
       const a = clampAngle(b.a);
-      return a >= 180 || isTreatBend(i) ? Ro : Ro * Math.tan(rad(a) / 2);
+      return a >= 90 ? Ro : Ro * Math.tan(rad(a) / 2);
     });
     const legs = st.legs.map((L0, i) => {
       const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
@@ -319,10 +318,6 @@
       if (l.badArc) warnings.push({ cls: 'red', text: `Segment ${i + 1}: outside radius must be larger than the bar.` });
       else if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs cut length and outside radius.` });
       else if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
-    });
-    st.bends.forEach((b, i) => {
-      const a = clampAngle(b.a);
-      if (a > HOOK_WARN_ABOVE && a < 180 && !isTreatBend(i)) warnings.push({ cls: 'amber', text: `Bend ${i + 1} = ${fmtA(a)}° has no usable virtual corner. Use ${HOOK_WARN_ABOVE}° or less, or 180°.` });
     });
     if (!st.cut && st.legs.length) warnings.push({ cls: 'amber', text: 'Shape is not cut yet.' });
     return { d, pin, Ro, R, setbacks, legs, developed, overall, warnings, startTreat, endTreat, seg1 };

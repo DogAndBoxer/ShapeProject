@@ -13,7 +13,8 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 ### Conventions
 
 - **Segment lengths are outside-to-outside**, to the intersection of the straight portions at the outside
-  of the bend (AS 1100.501). A 180 hook has no intersection and is measured to the outside of the bend.
+  of the bend (AS 1100.501) for bends under 90°, and to the outside of the bend for 90° and over. See
+  Setback below.
 - **Bend angle is the outside angle** (deflection). 90 is a right angle, 180 is a hook back on itself.
 - **Bend direction** is up or down on screen, default up. In the shape code and JSON the angle is signed:
   clockwise positive, anticlockwise negative, walking from the start of bar with Segment 1 on the X axis.
@@ -30,14 +31,14 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
 - **Bend geometry** comes from actual bar diameter `d` and pin diameter `p`:
   outside radius `Ro = p/2 + d`, centreline radius `R = p/2 + d/2`. The standard does not cover these;
   they are production settings.
-- **Corner setback** for a bend of angle θ is `Ro·tan(θ/2)`; a 180 hook uses `Ro`. A segment's straight
-  portion is its length minus the setback at each bent end. A segment shorter than the sum of its setbacks
-  is geometrically impossible and is flagged.
-- **Hook and cog bends dimension to the outside of the bend on both sides** (setback `Ro` whatever the
-  angle). The hook length runs along the hook from the bar end to the outside of the bend, square to the
-  hook; the segment the hook joins runs to the same outside face. For 90 and 180 this is identical to the
-  corner rule. For a 135 hook it is what makes a 180×130 tie with 100 hooks close at 180×130 instead of
-  running each side out to a corner nothing touches (`l100,w135,l180,w90,l130,w90,l180,w90,l130,w135,l100`).
+- **Setback.** A bend under 90° dimensions to the virtual corner: setback `Ro·tan(θ/2)` from the end of the
+  straight. A bend of 90° or more dimensions each adjoining leg to the furthest point of the bend in that
+  leg's direction, which is `Ro` past the end of the straight. A length is never measured to a point that
+  is not on the bar, so an obtuse bend's virtual corner (3.2·Ro away at 145°, 7.6·Ro at 165°) is not used.
+  The two rules agree at 90°, and the 180 hook is just the second rule. This is the business's convention,
+  confirmed on marked-up 120/135/150/165 examples, and it matches the standard's validation offsets, which
+  take the outside of the bar for bends over 90°. A segment's straight portion is its length minus the
+  setback at each bent end; a segment shorter than the sum of its setbacks is flagged.
 - **Length overall** is the sum of segment lengths, per the standard. **Cut length** is the sum of straight
   portions plus centreline arc length at each bend.
 - **Validation offsets** (standard section 4.2): Segment 1 on the straight edge, X along it and Y off it,
