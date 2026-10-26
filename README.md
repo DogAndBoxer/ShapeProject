@@ -71,7 +71,11 @@ front.
 
 Hovering a segment length on the drawing shows the dimension it means: a dimension line parallel to the
 segment with extension lines at its reference points, the bar end or the virtual corner on the outside of
-the adjacent bend.
+the adjacent bend. Click the length to pin that dimension line so it stays through rotation,
+view, bar and pin changes; click again to release. **All dims** in the toolbar pins every straight segment at
+once, for an annotated snapshot. Pins travel in the link (`d=1.3`) and clear when the shape's structure
+changes (add, remove, reverse, new shape). Arc segments have no pin; their labels already carry radius,
+chord and drop.
 
 The Ruler button measures between any two points on the bar. The cursor snaps to the bar's edges and end
 faces, and preferentially to bar-end corners, tangent points, virtual corners and bend apexes. Click two
