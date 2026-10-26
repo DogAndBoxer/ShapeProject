@@ -57,7 +57,13 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
   chord is on the X axis. This is what the standard specifies for MES displays and operator documents.
 - **Machine**: last segment flat, drawn as the machine screen draws it.
 
-Both are the same shape rotated. Rotate turns the view in 90° steps.
+Both are the same shape rotated. On top of either view the shape can be turned freely: the ⟳ 90° button
+steps it, the degree field beside it sets an exact angle (anticlockwise positive), and dragging on the
+drawing spins it about its centre, with Shift snapping to 5°. **Lowest** rotates to the orientation with the
+smallest overall height, found by rolling the shape's convex hull onto each of its straight edges and
+keeping the lowest, narrower on a tie. That is the bundle height, not necessarily a stable rest. The overall
+dimensions always report the box at the angle showing. Validation offsets ignore rotation, as the standard
+defines them on Segment 1.
 
 The bar is drawn as a hollow outline with later segments in front of earlier ones. Where an earlier part
 of the bar lies under a later part, its edges and its end show as dotted hidden lines through the bar in
@@ -92,7 +98,7 @@ l220,w90,r5000,l5000,w0,l1000     90 cog, arc R5000 of length 5000, tangent join
 
 `l` segment length, `w` bend angle (signed), `r` radius before an arc segment, `w0` a tangent join.
 The earlier space-separated form (`250 135d 1000 90u 500 C`) still loads.
-The URL hash carries the code, bar and pin diameter, and the view, so a link reproduces the shape exactly.
+The URL hash carries the code, bar and pin diameter, the view and any rotation, so a link reproduces the shape exactly.
 
 ### Parked for later
 

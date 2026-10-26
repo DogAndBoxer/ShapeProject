@@ -120,6 +120,13 @@
   #view .toolbar .seg { display: inline-flex; }
   #view .toolbar .seg button:first-child { border-radius: 6px 0 0 6px; }
   #view .toolbar .seg button:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+  #view .toolbar .rot { align-items: stretch; }
+  #view .toolbar .rot button { border-radius: 6px 0 0 6px; }
+  #view .toolbar .rot input { width: 58px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line, #d1d5db); border-left: 0; background: rgba(255,255,255,.9); color: inherit; text-align: right; }
+  #view .toolbar .rot .unit { display: inline-flex; align-items: center; padding: 0 7px 0 3px; border: 1px solid var(--line, #d1d5db); border-left: 0; border-radius: 0 6px 6px 0; background: rgba(255,255,255,.9); font-size: 13px; color: var(--muted, #6b7280); }
+  #view svg { touch-action: none; user-select: none; }
+  svg.rotatable { cursor: grab; }
+  svg.dragging { cursor: grabbing; }
   #stats {
     border-top: 1px solid var(--line);
     padding: 10px 14px;
@@ -210,7 +217,11 @@
         <button id="viewStd" title="Segment 1 on the X axis, start of bar at the left (Shape Definition Standard)">Standard</button>
         <button id="viewMach" title="Last segment flat, as drawn on the machine screen">Machine</button>
       </span>
-      <button id="rotate" title="Rotate the view 90°">⟳ Rotate</button>
+      <span class="seg rot">
+        <button id="rotate" title="Rotate the view 90° anticlockwise">⟳ 90°</button>
+        <input id="rotDeg" type="number" step="any" value="0" title="View rotation in degrees, anticlockwise. Drag on the drawing to rotate by hand; hold Shift to snap to 5°."><span class="unit">°</span>
+      </span>
+      <button id="lowest" title="Rotate to the orientation with the smallest overall height, one straight edge flat on the ground">⤓ Lowest</button>
       <button id="rulerBtn" title="Measure between two points on the bar. Click two points; Esc clears.">📏 Ruler</button>
     </div>
     <div id="empty" hidden>Enter a segment length to start.</div>
@@ -236,7 +247,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-23 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-10-26 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -383,10 +394,10 @@
 
   const rotFn = ang => { const c = Math.cos(ang), s = Math.sin(ang); return p => [c * p[0] - s * p[1], s * p[0] + c * p[1]]; };
 
-  function outlineBox(path, T) {
-    const { pieces, halfW } = path;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    const add = p => { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); };
+  // Points on the outside of the bar (both edges of every leg, both edges of every arc), after transform T.
+  function outlinePts(path, T) {
+    const { pieces, halfW } = path, out = [];
+    const add = p => out.push(p);
     for (const pc of pieces) {
       if (pc.type === 'leg') {
         const d = T(pc.dir), nrm = [-d[1] * halfW, d[0] * halfW];
@@ -400,8 +411,41 @@
         }
       }
     }
+    return out;
+  }
+  function outlineBox(path, T) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of outlinePts(path, T)) { minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]); }
     if (!isFinite(minX)) { minX = maxX = minY = maxY = 0; }
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+  }
+  // Rotation (degrees anticlockwise, relative to the view's base orientation) that gives the smallest overall
+  // height. The lowest box always has a straight edge of the convex hull flat on the ground, so roll through the
+  // hull edges; ties go to the narrower box.
+  function lowestRotation(an) {
+    const path = buildPath(an, 1, 0, st.view);
+    const pts = outlinePts(path, rotFn(path.baseRot)).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    if (pts.length < 3) return 0;
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower = [], upper = [];
+    for (const p of pts) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+    for (let i = pts.length - 1; i >= 0; i--) { const p = pts[i]; while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+    const hull = lower.slice(0, -1).concat(upper.slice(0, -1));   // anticlockwise, interior on the left of each edge
+    let best = null;
+    for (let i = 0; i < hull.length; i++) {
+      const a = hull[i], b = hull[(i + 1) % hull.length], ex = b[0] - a[0], ey = b[1] - a[1], L = Math.hypot(ex, ey);
+      if (L < 1e-6) continue;
+      let h = 0, lo = Infinity, hi = -Infinity;
+      for (const p of hull) {
+        h = Math.max(h, ((p[0] - a[0]) * -ey + (p[1] - a[1]) * ex) / L);          // distance above the edge
+        const t = ((p[0] - a[0]) * ex + (p[1] - a[1]) * ey) / L; lo = Math.min(lo, t); hi = Math.max(hi, t);
+      }
+      const w = hi - lo;
+      if (!best || h < best.h - 1e-6 || (Math.abs(h - best.h) <= 1e-6 && w < best.w)) best = { h, w, ang: -Math.atan2(ey, ex) * 180 / Math.PI };
+    }
+    let r = best ? best.ang : 0;
+    r = ((r + 180) % 360 + 360) % 360 - 180;
+    return Math.abs(r) < 0.05 ? 0 : Math.round(r * 10) / 10;
   }
 
   // Validation offsets per Shape Definition Standard 4.2: Segment 1 on the straight edge, X along it and Y off it,
@@ -615,7 +659,7 @@
 
     const pad = 100, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
     const truePath = buildPath(an, 1, 0, st.view);
-    const T = rotFn(truePath.baseRot + st.rot * Math.PI / 2);
+    const T = rotFn(truePath.baseRot + rad(st.rot || 0));
     const trueBox = outlineBox(truePath, T);
     let scale = Math.min(availW / (trueBox.w || 1), availH / (trueBox.h || 1));
     let path, box;
@@ -984,7 +1028,7 @@
       cut: st.cut, code: toCode(),
     }, null, 2);
   }
-  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}&s=${encodeURIComponent(toCode())}`;
+  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}${st.rot ? '&r=' + Math.round(st.rot * 10) / 10 : ''}&s=${encodeURIComponent(toCode())}`;
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
@@ -997,15 +1041,23 @@
     if (num(q.get('p'))) { st.pin = num(q.get('p')); st.pinAuto = st.pin === st.gauge * PIN_RATIO; }
     else st.pin = st.gauge * PIN_RATIO;
     st.view = q.get('v') === 'm' ? 'machine' : 'standard';
+    st.rot = num(q.get('r')) || 0;
     return true;
   }
 
   // ---------- update cycle ----------
-  function onChange() {
+  function redraw() {
     rulerA = rulerB = null;
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);
+    const rd = $('#rotDeg');
+    if (document.activeElement !== rd) rd.value = Math.round((st.rot || 0) * 10) / 10;
+    svg.classList.toggle('rotatable', !rulerOn && st.legs.some(l => l != null && l > 0));
+    return an;
+  }
+  function onChange() {
+    const an = redraw();
     updateInfos(an);
     $('#code').value = toCode();
     $('#viewStd').classList.toggle('on', st.view === 'standard');
@@ -1091,7 +1143,30 @@
   $('#newShape').addEventListener('click', () => { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
   $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); st.arcs.forEach(a => { if (a) a.d = -a.d; }); rebuild(); });
   $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.arcs.reverse(); st.bends.reverse(); rebuild(); });
-  $('#rotate').addEventListener('click', () => { st.rot = (st.rot + 1) % 4; onChange(); });
+  const normRot = r => { r = ((r + 180) % 360 + 360) % 360 - 180; return Math.abs(r) < 0.05 ? 0 : r; };
+  $('#rotate').addEventListener('click', () => { st.rot = normRot((st.rot || 0) + 90); onChange(); });
+  $('#rotDeg').addEventListener('input', e => { const v = num(e.target.value); if (v != null) { st.rot = normRot(v); redraw(); } });
+  $('#rotDeg').addEventListener('change', () => onChange());
+  $('#lowest').addEventListener('click', () => { st.rot = lowestRotation(analyse()); onChange(); });
+  // drag on the drawing to rotate the view about its centre; Shift snaps to 5°
+  let drag = null;
+  svg.addEventListener('pointerdown', e => {
+    if (rulerOn || e.button !== 0 || !svg.classList.contains('rotatable')) return;
+    const [x, y] = svgPoint(e), r = svg.getBoundingClientRect();
+    drag = { cx: r.width / 2, cy: r.height / 2, x0: x, y0: y, a0: Math.atan2(-(y - r.height / 2), x - r.width / 2), rot0: st.rot || 0, moved: false, id: e.pointerId };
+  });
+  svg.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const [x, y] = svgPoint(e);
+    if (!drag.moved) { if (Math.hypot(x - drag.x0, y - drag.y0) < 4) return; drag.moved = true; svg.setPointerCapture(drag.id); svg.classList.add('dragging'); }
+    let r = drag.rot0 + (Math.atan2(-(y - drag.cy), x - drag.cx) - drag.a0) * 180 / Math.PI;
+    if (e.shiftKey) r = Math.round(r / 5) * 5;
+    st.rot = normRot(Math.round(r * 10) / 10);
+    redraw();
+  });
+  const endDrag = () => { if (!drag) return; const moved = drag.moved; drag = null; svg.classList.remove('dragging'); if (moved) onChange(); };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
   $('#viewStd').addEventListener('click', () => { st.view = 'standard'; st.rot = 0; onChange(); });
   $('#viewMach').addEventListener('click', () => { st.view = 'machine'; st.rot = 0; onChange(); });
 
