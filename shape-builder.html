@@ -161,7 +161,8 @@
   svg text.leg.red { fill: var(--red); }
   svg text.leg.amber { fill: var(--amber); }
   svg text.leg { cursor: default; pointer-events: all; }
-  svg text.leg.hl { fill: var(--dim); }
+  svg text.leg.hl, svg text.leg.pin { fill: var(--dim); }
+  svg text.leg.pin { font-weight: 700; }
   svg text.ang { font-size: 12px; fill: var(--muted); }
   svg text.dim { font-size: 12px; fill: var(--dim); }
   svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
@@ -221,6 +222,7 @@
         <button id="rotate" title="Rotate the view 90° anticlockwise">⟳ 90°</button>
         <input id="rotDeg" type="number" step="any" value="0" title="View rotation in degrees, anticlockwise. Drag on the drawing to rotate by hand; hold Shift to snap to 5°."><span class="unit">°</span>
       </span>
+      <button id="allDims" title="Show the dimension line for every segment. Click a segment's length to pin or unpin just that one.">📐 All dims</button>
       <button id="lowest" title="Rotate to the orientation with the smallest overall height, one straight edge flat on the ground">⤓ Lowest</button>
       <button id="rulerBtn" title="Measure between two points on the bar. Click two points; Esc clears.">📏 Ruler</button>
     </div>
@@ -247,7 +249,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-26 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-10-27 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -267,7 +269,7 @@
     arcs: [null, null, null],    // null = straight; else {Ro: outside radius, d: +1 clockwise forward}
     bends: [{ a: 135, d: -1 }, { a: 90, d: 1 }],  // a = bend angle, d = +1 up (clockwise forward), -1 down
     cut: true,
-    view: 'standard', rot: 0,
+    view: 'standard', rot: 0, pins: [],
   };
 
   // ---------- geometry ----------
@@ -808,17 +810,24 @@
         };
         const q0 = refPoint(p0, path.pieces[k - 1], 1), q1 = refPoint(p1, path.pieces[k + 1], -1);
         const away = [-n[0], -n[1]], dist = path.halfW + 24;
-        label.addEventListener('mouseenter', () => {
-          hoverOff();
-          const hg = el('g', { id: 'hover' });
+        const dimGroup = id => {
+          const hg = el('g', id ? { id } : { class: 'pinned' });
           const proj = q => { const t = (q[0] - m[0]) * d[0] + (q[1] - m[1]) * d[1]; return [m[0] + d[0] * t + away[0] * dist, m[1] + d[1] * t + away[1] * dist]; };
           const a = proj(q0), b = proj(q1);
           for (const [q, r] of [[q0, a], [q1, b]]) hg.appendChild(el('line', { x1: q[0], y1: q[1], x2: r[0] + away[0] * 6, y2: r[1] + away[1] * 6, class: 'ext' }));
           hg.appendChild(el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], class: 'dimline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
-          g.appendChild(hg);
-          label.classList.add('hl');
-        });
+          return hg;
+        };
+        const pinned = st.pins.includes(pc.i);
+        if (pinned) { g.insertBefore(dimGroup(null), g.firstChild); label.classList.add('pin'); }
+        label.addEventListener('mouseenter', () => { if (pinned) return; hoverOff(); g.appendChild(dimGroup('hover')); label.classList.add('hl'); });
         label.addEventListener('mouseleave', () => { hoverOff(); label.classList.remove('hl'); });
+        // click pins the dimension line so it stays for a snapshot; click again to release
+        label.addEventListener('click', e => {
+          e.stopPropagation();
+          st.pins = pinned ? st.pins.filter(i => i !== pc.i) : st.pins.concat(pc.i).sort((x, y) => x - y);
+          onChange();
+        });
       } else if (pc.type === 'arcseg') {
         const leg = an.legs[pc.i];
         const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
@@ -1028,7 +1037,7 @@
       cut: st.cut, code: toCode(),
     }, null, 2);
   }
-  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}${st.rot ? '&r=' + Math.round(st.rot * 10) / 10 : ''}&s=${encodeURIComponent(toCode())}`;
+  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}${st.rot ? '&r=' + Math.round(st.rot * 10) / 10 : ''}${st.pins.length ? '&d=' + st.pins.map(i => i + 1).join('.') : ''}&s=${encodeURIComponent(toCode())}`;
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
@@ -1042,6 +1051,7 @@
     else st.pin = st.gauge * PIN_RATIO;
     st.view = q.get('v') === 'm' ? 'machine' : 'standard';
     st.rot = num(q.get('r')) || 0;
+    st.pins = (q.get('d') || '').split('.').map(x => num(x)).filter(x => x != null && x >= 1 && x <= st.legs.length).map(x => x - 1);
     return true;
   }
 
@@ -1054,6 +1064,7 @@
     const rd = $('#rotDeg');
     if (document.activeElement !== rd) rd.value = Math.round((st.rot || 0) * 10) / 10;
     svg.classList.toggle('rotatable', !rulerOn && st.legs.some(l => l != null && l > 0));
+    $('#allDims').classList.toggle('on', allPinned());
     return an;
   }
   function onChange() {
@@ -1065,6 +1076,7 @@
     try { history.replaceState(null, '', toHash()); } catch (e) { /* sandboxed host: link sharing unavailable */ }
   }
   function rebuild(focus) {
+    st.pins = st.pins.filter(i => i < st.legs.length && !st.arcs[i]);
     renderTable();
     onChange();
     if (focus) focusInput(focus.kind, focus.i, focus.select);
@@ -1116,8 +1128,9 @@
         st.arcs[i] = st.arcs[i] ? null : { Ro: null, d: 1 };
         rebuild(st.arcs[i] ? { kind: 'Ro', i, select: true } : { kind: 'len', i }); break;
       case 'adir': st.arcs[i].d = -st.arcs[i].d; rebuild(); break;
-      case 'insert': st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.arcs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
+      case 'insert': st.pins = []; st.bends.splice(i, 0, { a: 90, d: 1 }); st.legs.splice(i + 1, 0, null); st.arcs.splice(i + 1, 0, null); rebuild({ kind: 'ang', i, select: true }); break;
       case 'delRow':
+        st.pins = [];
         if (st.legs.length === 1) { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; }
         else if (i < st.bends.length) { st.legs.splice(i, 1); st.arcs.splice(i, 1); st.bends.splice(i, 1); }
         else { st.legs.splice(i, 1); st.arcs.splice(i, 1); st.bends.splice(i - 1, 1); }
@@ -1140,13 +1153,16 @@
   $('#actualReset').addEventListener('click', () => { st.actualAuto = true; st.actual = actualOf(st.gauge); actualInp.value = st.actual; onChange(); });
   pinInp.addEventListener('input', () => { st.pin = num(pinInp.value) || 0; st.pinAuto = false; onChange(); });
   $('#pinReset').addEventListener('click', () => { st.pinAuto = true; st.pin = st.gauge * PIN_RATIO; pinInp.value = st.pin; onChange(); });
-  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; rebuild({ kind: 'len', i: 0 }); });
+  $('#newShape').addEventListener('click', () => { st.legs = [null]; st.arcs = [null]; st.bends = []; st.cut = false; st.pins = []; rebuild({ kind: 'len', i: 0 }); });
   $('#flipBends').addEventListener('click', () => { st.bends.forEach(b => b.d = -b.d); st.arcs.forEach(a => { if (a) a.d = -a.d; }); rebuild(); });
-  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.arcs.reverse(); st.bends.reverse(); rebuild(); });
+  $('#reverseOrder').addEventListener('click', () => { st.legs.reverse(); st.arcs.reverse(); st.bends.reverse(); st.pins = []; rebuild(); });
   const normRot = r => { r = ((r + 180) % 360 + 360) % 360 - 180; return Math.abs(r) < 0.05 ? 0 : r; };
   $('#rotate').addEventListener('click', () => { st.rot = normRot((st.rot || 0) + 90); onChange(); });
   $('#rotDeg').addEventListener('input', e => { const v = num(e.target.value); if (v != null) { st.rot = normRot(v); redraw(); } });
   $('#rotDeg').addEventListener('change', () => onChange());
+  const straightIdx = () => st.legs.map((l, i) => i).filter(i => !st.arcs[i] && st.legs[i] != null && st.legs[i] > 0);
+  const allPinned = () => { const all = straightIdx(); return all.length > 0 && all.every(i => st.pins.includes(i)); };
+  $('#allDims').addEventListener('click', () => { st.pins = allPinned() ? [] : straightIdx(); onChange(); });
   $('#lowest').addEventListener('click', () => { st.rot = lowestRotation(analyse()); onChange(); });
   // drag on the drawing to rotate the view about its centre; Shift snaps to 5°
   let drag = null;
