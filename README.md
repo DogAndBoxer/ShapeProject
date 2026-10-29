@@ -96,6 +96,15 @@ is shown ordinate-style: verticals and horizontals through both points, the hori
 dimensioned across the top between the verticals, the vertical component at the side, and the direct
 distance on the diagonal. Escape clears.
 
+**Adjust** puts a blue handle on the outside of every bend, for drawings that leave an angle out: drag a
+handle and the bar after the bend (in walking order, so from the start of bar in Standard and from the last
+segment in Machine) swings to point at the cursor, the outgoing straight lying on the tangent from the cursor
+to the bend. Angles step in whole degrees, from 0 to 180, and dragging through straight flips the bend up or
+down. The drawing holds its scale and position during the drag so the handle stays under the cursor, and
+refits on release; the overall dimensions, stats and table update live. Click a handle and the arrow keys
+nudge it ±1°, Shift ±0.1°; Escape deselects. Dragging off a handle still rotates the view. Adjust and the
+Ruler are exclusive.
+
 ### Shape code (NSS)
 
 ```
