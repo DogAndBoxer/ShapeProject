@@ -95,6 +95,10 @@
     font-variant-numeric: tabular-nums; color: var(--ink); background: #fff;
   }
   #rows input[data-kind=ang] { width: 66px; }
+  #rows .pinline { display: flex; align-items: center; gap: 3px; }
+  #rows .pinline input[data-kind=pin] { width: 46px; font-size: 11px; padding: 1px 4px; border-color: transparent; background: transparent; color: var(--accent); font-weight: 600; }
+  #rows .pinline input[data-kind=pin]::placeholder { color: var(--muted); font-weight: 400; }
+  #rows .pinline input[data-kind=pin]:hover, #rows .pinline input[data-kind=pin]:focus { border-color: var(--line); background: #fff; }
   #rows input:focus { border-color: var(--accent); outline: 2px solid #bfdbfe; }
   #rows .info { color: var(--muted); font-size: 11px; white-space: nowrap; line-height: 1.2; padding: 2px 0 0 2px; min-height: 14px; overflow: visible; }
   #rows .info.red { color: var(--red); font-weight: 600; }
@@ -164,6 +168,8 @@
   svg text.leg.hl, svg text.leg.pin { fill: var(--dim); }
   svg text.leg.pin { font-weight: 700; }
   svg text.ang { font-size: 12px; fill: var(--muted); }
+  svg text.ang.clk { pointer-events: all; cursor: pointer; }
+  svg text.ang.own { fill: var(--dim); font-weight: 600; }
   svg text.dim { font-size: 12px; fill: var(--dim); }
   svg .dimline { stroke: var(--dim); stroke-width: 1; fill: none; }
   svg .ext { stroke: var(--dim); stroke-width: .75; opacity: .6; }
@@ -249,7 +255,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-27 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-10-29 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -292,8 +298,10 @@
 
   function analyse() {
     const d = st.actual || 0, pin = st.pin || 0, n = st.legs.length;
-    const Ro = pin / 2 + d;        // outside radius of the bend
-    const R = pin / 2 + d / 2;     // centreline radius
+    const Ro = pin / 2 + d;        // outside radius of a bend on the header pin
+    const R = pin / 2 + d / 2;     // centreline radius on the header pin
+    // A bend may carry its own pin; blank means the header pin.
+    const bendR = st.bends.map(b => { const bp = b.pin || pin; return { pin: bp, own: !!b.pin, Ro: bp / 2 + d, R: bp / 2 + d / 2 }; });
     // Start and end treatments (hooks and cogs): an end segment whose bend is 90 or more and which is
     // shorter than the segment it joins. Segment 1 is the first segment that is not a treatment.
     const rawL = st.legs.map((L0, i) => { const a = st.arcs[i]; if (!a) return L0; const sol = solveArc(a, L0, d); return sol && !sol.bad ? L0 : null; });
@@ -305,9 +313,9 @@
     // corner (intersection of the outside edges). A bend of 90 or more dimensions each leg to the furthest
     // point of the bend in that leg's direction, which is Ro past the end of the straight: a length is never
     // measured to a point that is not on the bar. The two agree at 90.
-    const setbacks = st.bends.map(b => {
-      const a = clampAngle(b.a);
-      return a >= 90 ? Ro : Ro * Math.tan(rad(a) / 2);
+    const setbacks = st.bends.map((b, i) => {
+      const a = clampAngle(b.a), ro = bendR[i].Ro;
+      return a >= 90 ? ro : ro * Math.tan(rad(a) / 2);
     });
     const legs = st.legs.map((L0, i) => {
       const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
@@ -322,18 +330,18 @@
       const S = (empty ? 0 : L) - min;
       return { L, min, S, empty, short: !empty && S < 0, arc: !!a, r, sol: sol && !sol.bad ? sol : null, badArc: !!(sol && sol.bad), Ro: sol && !sol.bad ? sol.Ro : null };
     });
-    const arcLen = st.bends.reduce((s, b) => s + R * rad(clampAngle(b.a)), 0);
+    const arcLen = st.bends.reduce((s, b, i) => s + bendR[i].R * rad(clampAngle(b.a)), 0);
     const developed = legs.reduce((s, l) => s + Math.max(0, l.S), 0) + arcLen;
     const overall = legs.reduce((s, l) => s + (l.L || 0), 0);
     const warnings = [];
     legs.forEach((l, i) => {
-      if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} actual bar on a Ø${pin} pin).` });
+      if (l.short) warnings.push({ cls: 'red', text: `Segment ${i + 1} = ${fmt(l.L)} is ${fmt(-l.S)} short of its geometric minimum ${fmt(l.min)} (Ø${d} actual bar, pins Ø${[...new Set(bendR.map(r => r.pin))].join('/')}).` });
       if (l.badArc) warnings.push({ cls: 'red', text: `Segment ${i + 1}: outside radius must be larger than the bar.` });
       else if (l.arc && !l.sol) warnings.push({ cls: 'amber', text: `Segment ${i + 1}: arc needs cut length and outside radius.` });
       else if (l.empty) warnings.push({ cls: 'amber', text: `Segment ${i + 1} has no length.` });
     });
     if (!st.cut && st.legs.length) warnings.push({ cls: 'amber', text: 'Shape is not cut yet.' });
-    return { d, pin, Ro, R, setbacks, legs, developed, overall, warnings, startTreat, endTreat, seg1 };
+    return { d, pin, Ro, R, bendR, setbacks, legs, developed, overall, warnings, startTreat, endTreat, seg1 };
   }
 
   // Walk the shape as a turtle in maths coordinates (y up).
@@ -341,7 +349,7 @@
   // 'machine':  from the last segment heading right, as the machine screen draws it; up bends turn anticlockwise.
   function buildPath(an, scale, minPx, mode) {
     const n = st.legs.length, fwd = mode === 'standard';
-    const halfW = an.d * scale / 2, rb = an.R * scale;
+    const halfW = an.d * scale / 2;
     const turn = v => (fwd ? -1 : 1) * v;   // v = +1 for anything clockwise-forward (up bend, positive radius)
     let x = 0, y = 0, phi = 0;
     const pieces = [];
@@ -376,7 +384,7 @@
       const bi = fwd ? i : i - 1;   // bend that follows this segment in walking order
       if (bi >= 0 && bi < st.bends.length) {
         const b = st.bends[bi], aDeg = clampAngle(b.a);
-        if (aDeg > 0) arcPiece('arc', bi, rb, turn(b.d >= 0 ? 1 : -1), rad(aDeg), { aDeg });
+        if (aDeg > 0) arcPiece('arc', bi, an.bendR[bi].R * scale, turn(b.d >= 0 ? 1 : -1), rad(aDeg), { aDeg });
       }
     }
     // rotate so Segment 1 (standard) lies on the X axis
@@ -463,15 +471,15 @@
     for (const pc of path.pieces) if (pc.type === 'arc') arcs[pc.i] = pc;
     const seg1 = path.pieces.find(pc => pc.i === ref && pc.type !== 'arc');
     if (!seg1 || !arcs[ref]) return [];
-    const ratio = an.Ro / an.R;
+    const ratioOf = pc => an.bendR[pc.i].Ro / an.bendR[pc.i].R;
     const corner = pc => {
-      const a = rad(pc.aDeg);
+      const a = rad(pc.aDeg), ratio = ratioOf(pc);
       if (pc.aDeg >= 180) return null;
-      const p0 = pc.pts[0], t = an.R * Math.tan(a / 2);
+      const p0 = pc.pts[0], t = an.bendR[pc.i].R * Math.tan(a / 2);
       const cl = [p0[0] + t * Math.cos(pc.phiIn), p0[1] + t * Math.sin(pc.phiIn)];
       return T([pc.c[0] + (cl[0] - pc.c[0]) * ratio, pc.c[1] + (cl[1] - pc.c[1]) * ratio]);
     };
-    const outer = pc => pc.pts.map(p => T([pc.c[0] + (p[0] - pc.c[0]) * ratio, pc.c[1] + (p[1] - pc.c[1]) * ratio]));
+    const outer = pc => { const ratio = ratioOf(pc); return pc.pts.map(p => T([pc.c[0] + (p[0] - pc.c[0]) * ratio, pc.c[1] + (p[1] - pc.c[1]) * ratio])); };
     const refC = T(arcs[ref].c);
     const segY = T(seg1.type === 'leg' ? seg1.p0 : seg1.pts[0])[1];
     const edgeY = segY - Math.sign(refC[1] - segY) * an.d / 2;   // straight edge is the face away from the bends
@@ -851,12 +859,14 @@
           const mid = [(M[0] + P[0]) / 2, (M[1] + P[1]) / 2], n = [-o[1], o[0]];
           g.appendChild(el('text', { x: (mid[0] + n[0] * 10).toFixed(1), y: (mid[1] + n[1] * 10).toFixed(1), 'text-anchor': n[0] > 0.3 ? 'start' : n[0] < -0.3 ? 'end' : 'middle', 'dominant-baseline': 'middle', class: 'arctext' }, `drop ${fmt(leg.sol.calc.drop)}`));
         }
-      } else if (pc.aDeg !== 90) {
-        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16;
-        g.appendChild(el('text', {
+      } else if (pc.aDeg !== 90 || an.bendR[pc.i].own) {
+        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16, own = an.bendR[pc.i].own;
+        const t = el('text', {
           x: (c[0] + o[0] * dist).toFixed(1), y: (c[1] + o[1] * dist).toFixed(1),
-          'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang',
-        }, `${fmtA(pc.aDeg)}°`));
+          'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang clk' + (own ? ' own' : ''),
+        }, `${fmtA(pc.aDeg)}°` + (own ? ` · Ø${fmt(an.bendR[pc.i].pin)}` : ''));
+        t.addEventListener('click', e => { e.stopPropagation(); focusInput('pin', pc.i, true); });
+        g.appendChild(t);
       }
     });
 
@@ -881,7 +891,9 @@
       ['Overall', `${fmt(box.w)} × ${fmt(box.h)} mm`],
       ['Bends', String(st.bends.length)],
       ['Bar', `N${st.gauge} · Ø${an.d} actual`],
-      ['Bend radius', `Ro ${fmt(an.Ro)} · CL ${fmt(an.R)} mm`],
+      ['Bend radius', an.bendR.some(x => x.own)
+        ? [...new Map(an.bendR.map(r => [r.pin, r])).values()].map(r => `Ø${fmt(r.pin)} pin: Ro ${fmt(r.Ro)} · CL ${fmt(r.R)} mm`).join('<br>')
+        : `Ro ${fmt(an.Ro)} · CL ${fmt(an.R)} mm`],
       ['Status', st.cut ? 'Cut' : 'Open'],
     ];
     let h = rows.map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
@@ -907,7 +919,7 @@
       let bendCells;
       if (!last) {
         const b = st.bends[i];
-        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="0" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"></td>
+        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="0" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"><div class="info pinline" title="Pin for this bend. Blank uses the header pin.">pin Ø<input type="number" inputmode="decimal" min="1" step="1" data-kind="pin" data-i="${i}" value="${b.pin || ''}" placeholder="${st.pin}"></div></td>
           <td class="unit">°</td>
           <td class="dircell"><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction: ${b.d > 0 ? 'up' : 'down'}">${b.d > 0 ? '▲' : '▼'}</button></td>`;
       } else if (st.cut) {
@@ -1033,11 +1045,11 @@
         const c = sol.calc;
         return { cutLength: Math.round(L), outsideRadius: Math.round(sol.Ro), centrelineRadius: Math.round(sol.Rcl), chord: Math.round(c.chord), drop: Math.round(c.drop), angle: Math.round(c.angle * 100) / 100, direction: a.d > 0 ? 'up' : 'down' };
       }),
-      bends: st.bends.map(b => ({ angle: clampAngle(b.a) * (b.d > 0 ? 1 : -1), direction: b.d > 0 ? 'up' : 'down' })),
+      bends: st.bends.map(b => Object.assign({ angle: clampAngle(b.a) * (b.d > 0 ? 1 : -1), direction: b.d > 0 ? 'up' : 'down' }, b.pin ? { pin: b.pin } : {})),
       cut: st.cut, code: toCode(),
     }, null, 2);
   }
-  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}${st.rot ? '&r=' + Math.round(st.rot * 10) / 10 : ''}${st.pins.length ? '&d=' + st.pins.map(i => i + 1).join('.') : ''}&s=${encodeURIComponent(toCode())}`;
+  const toHash = () => `#g=${st.gauge}${st.actualAuto ? '' : '&a=' + st.actual}&p=${st.pin}${st.view === 'machine' ? '&v=m' : ''}${st.rot ? '&r=' + Math.round(st.rot * 10) / 10 : ''}${st.pins.length ? '&d=' + st.pins.map(i => i + 1).join('.') : ''}${st.bends.some(b => b.pin) ? '&bp=' + st.bends.map((b, i) => b.pin ? `${i + 1}:${b.pin}` : null).filter(Boolean).join('.') : ''}&s=${encodeURIComponent(toCode())}`;
   function loadHash() {
     if (!location.hash || location.hash.length < 2) return false;
     const q = new URLSearchParams(location.hash.slice(1));
@@ -1051,6 +1063,7 @@
     else st.pin = st.gauge * PIN_RATIO;
     st.view = q.get('v') === 'm' ? 'machine' : 'standard';
     st.rot = num(q.get('r')) || 0;
+    (q.get('bp') || '').split('.').forEach(t => { const m = t.match(/^(\d+):(\d+(?:\.\d+)?)$/); if (m && st.bends[+m[1] - 1]) st.bends[+m[1] - 1].pin = +m[2]; });
     st.pins = (q.get('d') || '').split('.').map(x => num(x)).filter(x => x != null && x >= 1 && x <= st.legs.length).map(x => x - 1);
     return true;
   }
@@ -1065,6 +1078,7 @@
     if (document.activeElement !== rd) rd.value = Math.round((st.rot || 0) * 10) / 10;
     svg.classList.toggle('rotatable', !rulerOn && st.legs.some(l => l != null && l > 0));
     $('#allDims').classList.toggle('on', allPinned());
+    document.querySelectorAll('input[data-kind=pin]').forEach(e => { e.placeholder = st.pin; });
     return an;
   }
   function onChange() {
@@ -1088,6 +1102,7 @@
     const k = inp.dataset.kind, i = +inp.dataset.i;
     if (k === 'len') st.legs[i] = num(inp.value);
     else if (k === 'ang') st.bends[i].a = clampAngle(inp.value);
+    else if (k === 'pin') { const v = num(inp.value); st.bends[i].pin = v && v > 0 ? v : null; }
     else if (k === 'Ro' && st.arcs[i]) st.arcs[i].Ro = num(inp.value);
     else return;
     onChange();
@@ -1110,6 +1125,8 @@
       }
     } else if (kind === 'Ro') {
       if (e.key === 'Enter') { e.preventDefault(); if (i < st.legs.length - 1) focusInput('ang', i, true); }
+    } else if (kind === 'pin') {
+      if (e.key === 'Enter') { e.preventDefault(); focusInput('len', i + 1, true); }
     } else if (kind === 'ang') {
       if (e.key === 'Enter') { e.preventDefault(); focusInput('len', i + 1, true); }
       else if (e.key === 'ArrowUp' || e.key === 'u' || e.key === 'U') { e.preventDefault(); setDir(i, 1); onChange(); }

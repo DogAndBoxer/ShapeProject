@@ -30,7 +30,11 @@ Conventions follow the Shape Definition Standard, IBR-SDS-001 (draft v0.1).
   still labels the bar and sets the default pin.
 - **Bend geometry** comes from actual bar diameter `d` and pin diameter `p`:
   outside radius `Ro = p/2 + d`, centreline radius `R = p/2 + d/2`. The standard does not cover these;
-  they are production settings.
+  they are production settings. Each bend can carry its own pin (the `pin Ø` field under the angle, blank
+  means the header pin); setbacks, straights, cut length, the drawn arc, dimension lines and offsets all
+  follow the bend's own radius. Overrides travel in the link (`bp=4:96`) and the JSON, not in the NSS code.
+  Lengths stay out-to-out, so changing a bend's pin changes the straight, not the overall: to hold a
+  straight, re-enter the length as straight plus the new Ro.
 - **Setback.** A bend under 90° dimensions to the virtual corner: setback `Ro·tan(θ/2)` from the end of the
   straight. A bend of 90° or more dimensions each adjoining leg to the furthest point of the bend in that
   leg's direction, which is `Ro` past the end of the straight. A length is never measured to a point that
