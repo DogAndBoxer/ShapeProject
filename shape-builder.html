@@ -184,6 +184,11 @@
   svg .rtrack { stroke: var(--dim); stroke-width: 1.25; stroke-dasharray: 2 3; }
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
+  svg .adjh { cursor: grab; }
+  svg .adjh .hit { fill: transparent; }
+  svg .adjh .dot { fill: var(--dim); stroke: #fff; stroke-width: 1.5; }
+  svg .adjh.sel .dot { fill: #fff; stroke: var(--dim); stroke-width: 2.5; }
+  svg.adjusting, svg.adjusting .adjh { cursor: grabbing; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
 </style>
 </head>
@@ -230,6 +235,7 @@
       </span>
       <button id="allDims" title="Show the dimension line for every segment. Click a segment's length to pin or unpin just that one.">📐 All dims</button>
       <button id="lowest" title="Rotate to the orientation with the smallest overall height, one straight edge flat on the ground">⤓ Lowest</button>
+      <button id="adjBtn" title="Drag the blue handle on a bend to set its angle in 1° steps; drag through straight to flip up and down. Click a handle, then the arrow keys nudge it ±1°, Shift ±0.1°.">◉ Adjust</button>
       <button id="rulerBtn" title="Measure between two points on the bar. Click two points; Esc clears.">📏 Ruler</button>
     </div>
     <div id="empty" hidden>Enter a segment length to start.</div>
@@ -352,7 +358,7 @@
     const halfW = an.d * scale / 2;
     const turn = v => (fwd ? -1 : 1) * v;   // v = +1 for anything clockwise-forward (up bend, positive radius)
     let x = 0, y = 0, phi = 0;
-    const pieces = [];
+    const pieces = [], joints = [];
     const arcPiece = (type, i, R, t, sweep, extra) => {
       const cx = x + R * Math.cos(phi + t * Math.PI / 2), cy = y + R * Math.sin(phi + t * Math.PI / 2);
       const a0 = phi - t * Math.PI / 2;
@@ -384,6 +390,8 @@
       const bi = fwd ? i : i - 1;   // bend that follows this segment in walking order
       if (bi >= 0 && bi < st.bends.length) {
         const b = st.bends[bi], aDeg = clampAngle(b.a);
+        // where the bend starts, even at 0°, for the angle handles
+        joints.push({ i: bi, p: [x, y], phi, R: an.bendR[bi].R * scale, t: turn(b.d >= 0 ? 1 : -1) });
         if (aDeg > 0) arcPiece('arc', bi, an.bendR[bi].R * scale, turn(b.d >= 0 ? 1 : -1), rad(aDeg), { aDeg });
       }
     }
@@ -399,7 +407,7 @@
         }
       }
     }
-    return { pieces, halfW, baseRot };
+    return { pieces, joints, halfW, baseRot };
   }
 
   const rotFn = ang => { const c = Math.cos(ang), s = Math.sin(ang); return p => [c * p[0] - s * p[1], s * p[0] + c * p[1]]; };
@@ -512,6 +520,8 @@
     return e;
   };
   let lastClamped = new Set();
+  let lastView = null, viewLock = null;            // frame of the last drawing; held frame while a handle is dragged
+  let adjOn = false, adjSel = null, adj = null;    // angle handles: shown, selected bend, drag in progress
 
   // ---------- ruler ----------
   let frame = null, rulerOn = false, rulerA = null, rulerB = null;
@@ -655,6 +665,7 @@
   $('#rulerBtn').addEventListener('click', () => {
     rulerOn = !rulerOn; rulerA = rulerB = null;
     svg.classList.toggle('ruler', rulerOn); $('#rulerBtn').classList.toggle('on', rulerOn);
+    if (rulerOn && adjOn) { adjOn = false; adjSel = null; $('#adjBtn').classList.remove('on'); redraw(); }
     drawRuler(null);
   });
 
@@ -669,18 +680,21 @@
 
     const pad = 100, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
     const truePath = buildPath(an, 1, 0, st.view);
-    const T = rotFn(truePath.baseRot + rad(st.rot || 0));
-    const trueBox = outlineBox(truePath, T);
-    let scale = Math.min(availW / (trueBox.w || 1), availH / (trueBox.h || 1));
+    // While a bend handle is dragged the frame is held (scale, position, rotation) so the bar before the bend
+    // stays put under the cursor; the overall numbers still use the orientation the shape will settle in.
+    const ang = viewLock ? viewLock.ang : truePath.baseRot + rad(st.rot || 0), T = rotFn(ang);
+    const trueBox = outlineBox(truePath, rotFn(truePath.baseRot + rad(st.rot || 0)));
+    let scale = viewLock ? viewLock.scale : Math.min(availW / (trueBox.w || 1), availH / (trueBox.h || 1));
     let path, box;
     for (let iter = 0; iter < 6; iter++) {
       path = buildPath(an, scale, MIN_PX, st.view);
       box = outlineBox(path, T);
-      if (box.w <= availW + .5 && box.h <= availH + .5) break;
+      if (viewLock || (box.w <= availW + .5 && box.h <= availH + .5)) break;
       scale *= Math.min(availW / box.w, availH / box.h) * 0.985;
     }
-    const ox = pad + (availW - box.w) / 2 - box.minX;
-    const oy = pad + (availH - box.h) / 2 + box.maxY;
+    const ox = viewLock ? viewLock.ox : pad + (availW - box.w) / 2 - box.minX;
+    const oy = viewLock ? viewLock.oy : pad + (availH - box.h) / 2 + box.maxY;
+    lastView = { scale, ox, oy, ang, path };
     const S = p => { const q = T(p); return [ox + q[0], oy - q[1]]; };
     const SV = v => { const q = T(v); return [q[0], -q[1]]; };
 
@@ -859,8 +873,8 @@
           const mid = [(M[0] + P[0]) / 2, (M[1] + P[1]) / 2], n = [-o[1], o[0]];
           g.appendChild(el('text', { x: (mid[0] + n[0] * 10).toFixed(1), y: (mid[1] + n[1] * 10).toFixed(1), 'text-anchor': n[0] > 0.3 ? 'start' : n[0] < -0.3 ? 'end' : 'middle', 'dominant-baseline': 'middle', class: 'arctext' }, `drop ${fmt(leg.sol.calc.drop)}`));
         }
-      } else if (pc.aDeg !== 90 || an.bendR[pc.i].own) {
-        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + 16, own = an.bendR[pc.i].own;
+      } else if (pc.aDeg !== 90 || an.bendR[pc.i].own || adjOn) {
+        const c = S(pc.c), o = SV(pc.out), dist = pc.r + path.halfW + (adjOn ? 24 : 16), own = an.bendR[pc.i].own;
         const t = el('text', {
           x: (c[0] + o[0] * dist).toFixed(1), y: (c[1] + o[1] * dist).toFixed(1),
           'text-anchor': 'middle', 'dominant-baseline': 'middle', class: 'ang clk' + (own ? ' own' : ''),
@@ -881,6 +895,18 @@
     g.appendChild(el('line', { x1: x1 + 8, y1: y1, x2: dx + 5, y2: y1, class: 'ext' }));
     g.appendChild(el('line', { x1: dx, y1: y0, x2: dx, y2: y1, class: 'dimline', 'marker-start': 'url(#arr)', 'marker-end': 'url(#arr)' }));
     g.appendChild(el('text', { x: dx + 8, y: (y0 + y1) / 2, 'dominant-baseline': 'middle', class: 'dim' }, fmt(trueBox.h)));
+
+    // angle handles on the outside of each bend
+    if (adjOn) for (const j of path.joints) {
+      const th = rad(clampAngle(st.bends[j.i].a));
+      const c = [j.p[0] + j.R * Math.cos(j.phi + j.t * Math.PI / 2), j.p[1] + j.R * Math.sin(j.phi + j.t * Math.PI / 2)];
+      const am = j.phi - j.t * Math.PI / 2 + j.t * th / 2, ro = j.R + path.halfW;
+      const [hx, hy] = S([c[0] + ro * Math.cos(am), c[1] + ro * Math.sin(am)]);
+      const hg = el('g', { class: 'adjh' + (adjSel === j.i ? ' sel' : ''), 'data-i': j.i });
+      hg.appendChild(el('circle', { cx: hx, cy: hy, r: 13, class: 'hit' }));
+      hg.appendChild(el('circle', { cx: hx, cy: hy, r: adjSel === j.i ? 7 : 6, class: 'dot' }));
+      g.appendChild(hg);
+    }
     return trueBox;
   }
 
@@ -1071,6 +1097,7 @@
   // ---------- update cycle ----------
   function redraw() {
     rulerA = rulerB = null;
+    if (adjSel != null && adjSel >= st.bends.length) adjSel = null;
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);
@@ -1184,11 +1211,35 @@
   // drag on the drawing to rotate the view about its centre; Shift snaps to 5°
   let drag = null;
   svg.addEventListener('pointerdown', e => {
+    const h = adjOn && e.button === 0 && e.target.closest('.adjh');
+    if (h) {
+      const i = +h.dataset.i, j = lastView && lastView.path.joints.find(q => q.i === i);
+      if (!j) return;
+      adjSel = i;
+      viewLock = { scale: lastView.scale, ox: lastView.ox, oy: lastView.oy, ang: lastView.ang };
+      adj = { j, id: e.pointerId, changed: false };
+      svg.setPointerCapture(e.pointerId); svg.classList.add('adjusting');
+      redraw();
+      return;
+    }
     if (rulerOn || e.button !== 0 || !svg.classList.contains('rotatable')) return;
     const [x, y] = svgPoint(e), r = svg.getBoundingClientRect();
     drag = { cx: r.width / 2, cy: r.height / 2, x0: x, y0: y, a0: Math.atan2(-(y - r.height / 2), x - r.width / 2), rot0: st.rot || 0, moved: false, id: e.pointerId };
   });
   svg.addEventListener('pointermove', e => {
+    if (adj) {
+      const [x, y] = svgPoint(e);
+      const M = rotFn(-viewLock.ang)([x - viewLock.ox, viewLock.oy - y]);
+      const { a, t } = dragAngle(adj.j, M), b = st.bends[adj.j.i];
+      const deg = Math.round(a), d = (st.view === 'standard' ? -1 : 1) * t;
+      if (deg === b.a && (d === b.d || deg === 0)) return;
+      b.a = deg; if (deg > 0) b.d = d;
+      adj.changed = true;
+      syncBend(adj.j.i);
+      updateInfos(redraw());
+      $('#code').value = toCode();
+      return;
+    }
     if (!drag) return;
     const [x, y] = svgPoint(e);
     if (!drag.moved) { if (Math.hypot(x - drag.x0, y - drag.y0) < 4) return; drag.moved = true; svg.setPointerCapture(drag.id); svg.classList.add('dragging'); }
@@ -1197,9 +1248,54 @@
     st.rot = normRot(Math.round(r * 10) / 10);
     redraw();
   });
-  const endDrag = () => { if (!drag) return; const moved = drag.moved; drag = null; svg.classList.remove('dragging'); if (moved) onChange(); };
+  const endDrag = () => {
+    if (adj) { const changed = adj.changed; adj = null; viewLock = null; svg.classList.remove('adjusting'); if (changed) onChange(); else redraw(); return; }
+    if (!drag) return; const moved = drag.moved; drag = null; svg.classList.remove('dragging'); if (moved) onChange(); };
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
+  // Bend angle that points the bar after a joint at M (turtle coords): the outgoing straight lies on the tangent
+  // from M to the bend's centreline circle. Which side of the incoming line M is on picks the turn direction.
+  function dragAngle(j, M) {
+    const h = [Math.cos(j.phi), Math.sin(j.phi)], v = [M[0] - j.p[0], M[1] - j.p[1]];
+    const cr = h[0] * v[1] - h[1] * v[0], dt = h[0] * v[0] + h[1] * v[1];
+    const t = Math.sign(cr) || j.t;                 // +1 turns anticlockwise in turtle coords
+    let th = Math.abs(Math.atan2(cr, dt));          // fallback: angle seen from the joint
+    const c = [j.p[0] + j.R * Math.cos(j.phi + t * Math.PI / 2), j.p[1] + j.R * Math.sin(j.phi + t * Math.PI / 2)];
+    const w = [M[0] - c[0], M[1] - c[1]], D = Math.hypot(w[0], w[1]);
+    if (D > j.R * 1.001) {
+      const al = Math.atan2(w[1], w[0]) - t * Math.atan(Math.sqrt(D * D - j.R * j.R) / j.R);   // tangent point
+      th = ((t * (al - (j.phi - t * Math.PI / 2))) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      if (th > 1.5 * Math.PI) th = 0;               // just behind the start of the bend: straight
+    }
+    return { a: Math.min(180, th * 180 / Math.PI), t };
+  }
+  // reflect a bend's angle and direction in its table row
+  function syncBend(i) {
+    const inp = document.querySelector(`input[data-kind="ang"][data-i="${i}"]`);
+    if (inp) inp.value = st.bends[i].a;
+    setDir(i, st.bends[i].d);
+  }
+  $('#adjBtn').addEventListener('click', () => {
+    adjOn = !adjOn; adjSel = null;
+    $('#adjBtn').classList.toggle('on', adjOn);
+    if (adjOn && rulerOn) $('#rulerBtn').click();
+    redraw();
+  });
+  // arrow keys nudge the selected bend; going through 0 flips it up/down
+  document.addEventListener('keydown', e => {
+    if (!adjOn || adjSel == null || e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (e.key === 'Escape') { adjSel = null; redraw(); return; }
+    const k = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key];
+    if (!k) return;
+    e.preventDefault();
+    const b = st.bends[adjSel];
+    let s = Math.round((clampAngle(b.a) * b.d + k * (e.shiftKey ? 0.1 : 1)) * 10) / 10;
+    s = Math.max(-180, Math.min(180, s));
+    if (s !== 0) b.d = Math.sign(s);
+    b.a = Math.abs(s);
+    syncBend(adjSel);
+    onChange();
+  });
   $('#viewStd').addEventListener('click', () => { st.view = 'standard'; st.rot = 0; onChange(); });
   $('#viewMach').addEventListener('click', () => { st.view = 'machine'; st.rot = 0; onChange(); });
 
