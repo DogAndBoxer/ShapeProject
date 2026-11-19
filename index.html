@@ -270,9 +270,9 @@
   function settingsView() {
     main.innerHTML = `<h2>Settings</h2>
       <div class="card"><b>Database (Supabase)</b>
-        <div class="muted" style="margin:4px 0 10px">Without a connection everything is saved in this browser on this laptop only. Run <code>supabase/schema.sql</code> in the project once, then enter the project URL and anon key here on each laptop.</div>
+        <div class="muted" style="margin:4px 0 10px">The project is built in, so there is nothing to enter. Everything is also kept in this browser, so the audit carries on if the connection drops and catches up later. <code>supabase/schema.sql</code> must have been run in the project once. Change these only to point this laptop at a different project; clear both to go back to the built-in one.</div>
         <label class="f"><span>Project URL</span><input type="text" id="sUrl" value="${esc(SA.cfg.url)}" placeholder="https://xxxx.supabase.co" style="width:420px"></label>
-        <label class="f"><span>Anon (public) key</span><input type="password" id="sKey" value="${esc(SA.cfg.key)}" style="width:420px"></label>
+        <label class="f"><span>Publishable (anon) key</span><input type="password" id="sKey" value="${esc(SA.cfg.key)}" style="width:420px"></label>
         <div class="row"><button class="primary" id="sSave">Save and sync now</button><span id="sState" class="muted">${esc(SA.syncState().text)}</span></div></div>
       <div class="card"><b>Export and import</b>
         <div class="muted" style="margin:4px 0 10px">Export is every machine, shape and saved piece as one JSON file. Import merges a file into what is here; the newer copy of each record wins.</div>
