@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shape Audit</title>
+<style>
+  :root { --bg: #f3f4f6; --panel: #fff; --ink: #111827; --muted: #6b7280; --line: #d1d5db; --accent: #2563eb; --red: #dc2626; --amber: #b45309; --green: #15803d; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; padding: 10px 18px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0 10px 0 0; font-weight: 650; }
+  nav { display: flex; flex-wrap: wrap; gap: 2px; }
+  nav a { padding: 5px 10px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+  nav a:hover { background: var(--bg); }
+  nav a.on { background: var(--accent); color: #fff; }
+  header .spacer { flex: 1; }
+  #sync { font-size: 12px; color: var(--muted); }
+  #sync.bad { color: var(--red); }
+  main { max-width: 1180px; margin: 0 auto; padding: 18px; }
+  h2 { font-size: 20px; margin: 0 0 12px; font-weight: 650; }
+  h3 { font-size: 15px; margin: 18px 0 8px; font-weight: 650; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .muted { color: var(--muted); }
+  .red { color: var(--red); } .amber { color: var(--amber); } .green { color: var(--green); }
+  button, .btn { font: inherit; padding: 5px 11px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); background: #fff; color: var(--ink); text-decoration: none; display: inline-block; }
+  button:hover, .btn:hover { border-color: #9ca3af; }
+  button.primary, .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.link { border: none; background: none; color: var(--accent); padding: 2px 4px; }
+  button.danger { color: var(--red); }
+  input[type=text], input[type=number], input[type=password], select, textarea { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); outline: 2px solid #bfdbfe; }
+  label.f { display: block; margin: 0 0 10px; }
+  label.f > span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 14px 5px 0; border-top: 1px solid #eef0f3; }
+  th { color: var(--muted); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; border-top: 0; }
+  td.num { font-variant-numeric: tabular-nums; }
+  tr.void td { color: var(--muted); text-decoration: line-through; }
+  .bar { height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; min-width: 120px; }
+  .bar > i { display: block; height: 100%; background: var(--accent); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; color: var(--ink); text-decoration: none; display: block; }
+  .tile:hover { border-color: var(--accent); }
+  .tile b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .tile span { color: var(--muted); font-size: 13px; }
+  .big { font-size: 26px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .mcard { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: center; }
+  .matrix td, .matrix th { padding: 3px 10px 3px 0; border: 0; text-align: center; }
+  .matrix th:first-child, .matrix td:first-child { text-align: left; }
+  code { font: 12px ui-monospace, Menlo, Consolas, monospace; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Shape Audit</h1>
+  <nav id="nav"></nav>
+  <div class="spacer"></div>
+  <span id="sync"></span>
+</header>
+<main id="main"></main>
+
+<script src="shared.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = s => document.querySelector(s), esc = SA.esc, main = $('#main');
+  const VIEWS = [['home', 'Home'], ['machines', 'Machines'], ['shapes', 'Shapes'], ['review', 'Review data'], ['findings', 'Findings'], ['settings', 'Settings']];
+  const fmt = v => String(Math.round(v));
+  const num = v => (v === '' || v == null || isNaN(+v)) ? null : +v;
+  const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); };
+  const machines = () => SA.rows('machines').sort((a, b) => a.name.localeCompare(b.name));
+  const progress = m => { const q = SA.queue(m); return { total: q.length, done: q.filter(i => i.state === 'done').length, skipped: q.filter(i => i.state === 'skipped').length, q }; };
+  const barHtml = (done, total) => `<div class="bar"><i style="width:${total ? Math.round(100 * done / total) : 0}%"></i></div>`;
+  const route = () => (location.hash.slice(1).split('/')[0] || 'home');
+  let ed = null;                                   // machine being edited
+  const filt = { machine: '', status: '', voided: false, wire: '', pin: '' };
+
+  // ---------- home ----------
+  function home() {
+    const ms = machines();
+    let done = 0, total = 0;
+    const cards = ms.map(m => {
+      const p = progress(m); done += p.done; total += p.total;
+      const label = p.total === 0 ? 'No bar and pin combinations set up' : p.done === p.total ? 'Complete' : `${p.done} of ${p.total} pieces` + (p.skipped ? ` · ${p.skipped} skipped` : '');
+      return `<div class="card mcard"><div><b>${esc(m.name)}</b> <span class="muted">${m.feed === 'coil' ? 'coil' : 'bar'} · ${SA.combosOf(m).length} bar and pin combinations</span>
+        <div class="row" style="margin-top:6px">${barHtml(p.done, p.total)}<span class="muted">${label}</span></div></div>
+        <div>${p.total && p.done < p.total ? `<a class="btn primary" data-audit="${m.id}" href="shape-builder.html?audit=${encodeURIComponent(m.id)}">${p.done ? 'Continue audit' : 'Start audit'}</a>` : ''} <a class="btn" href="#machines/${m.id}">Edit</a></div></div>`;
+    }).join('');
+    main.innerHTML = `
+      <div class="card row" style="justify-content:space-between">
+        <div><div class="muted">Audit progress, all machines</div><div class="big">${done} <span class="muted" style="font-size:16px">of ${total} pieces</span></div></div>
+        <div style="flex:1;max-width:420px">${barHtml(done, total)}</div>
+        <label class="row">Operator <input type="text" id="operator" value="${esc(SA.cfg.operator)}" placeholder="your name" style="width:180px"></label>
+      </div>
+      <h3>Perform the audit</h3>
+      ${cards || '<div class="card muted">No machines yet. Add one under Machines to start.</div>'}
+      <h3>Everything else</h3>
+      <div class="tiles">
+        <a class="tile" href="#machines"><b>Machines</b><span>Add or edit machines, the bar they run and their pins</span></a>
+        <a class="tile" href="#shapes"><b>Shapes</b><span>The pieces every machine is asked to make</span></a>
+        <a class="tile" href="#review"><b>Review data</b><span>Every saved piece; void the wrong ones</span></a>
+        <a class="tile" href="#findings"><b>Findings</b><span>Minimums by machine, and where trade-offs showed up</span></a>
+        <a class="tile" href="shape-builder.html"><b>Shape builder</b><span>Draw a shape, check it against the minimums, add it to the audit</span></a>
+        <a class="tile" href="#settings"><b>Settings</b><span>Database connection, export and import</span></a>
+      </div>`;
+    $('#operator').addEventListener('change', e => SA.saveCfg({ operator: e.target.value.trim() }));
+    main.querySelectorAll('[data-audit]').forEach(a => a.addEventListener('click', e => {
+      if (SA.cfg.operator) return;
+      const n = prompt('Operator name, saved with each piece:');
+      if (n && n.trim()) SA.saveCfg({ operator: n.trim() }); else e.preventDefault();
+    }));
+  }
+
+  // ---------- machines ----------
+  function machinesView() {
+    const id = location.hash.split('/')[1];
+    if (id) return machineEdit(id);
+    ed = null;
+    const ms = machines();
+    main.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Machines</h2><a class="btn primary" href="#machines/new">Add machine</a></div>
+      <div class="card">${ms.length ? `<table><tr><th>Machine</th><th>Feed</th><th>Diameters</th><th>Pins</th><th>Radius shapes</th><th>Reverse bend</th><th>Audit</th><th></th></tr>
+      ${ms.map(m => { const p = progress(m); return `<tr><td><b>${esc(m.name)}</b></td><td>${m.feed === 'coil' ? 'Coil' : 'Bar'}</td><td>${(m.wires || []).join(', ')}</td>
+        <td>${(m.pins || []).map(x => `Ø${x.dia} ${esc(x.profile)}`).join(', ')}</td><td>${m.radius ? 'Yes' : 'No'}</td><td>${m.reverse ? 'Yes' : 'No'}</td><td>${p.done} / ${p.total}</td>
+        <td><a class="btn" href="#machines/${m.id}">Edit</a></td></tr>`; }).join('')}</table>` : '<span class="muted">No machines yet.</span>'}</div>`;
+  }
+  function machineEdit(id) {
+    if (!ed || ed.key !== id) {
+      const m = id === 'new' ? null : SA.get('machines', id);
+      if (id !== 'new' && !m) { location.hash = '#machines'; return; }
+      ed = { key: id, m: m ? JSON.parse(JSON.stringify(m)) : { name: '', feed: 'bar', wires: [], pins: [], off: [], radius: false, reverse: false, notes: '' } };
+      ed.wiresText = ed.m.wires.join(', ');
+    }
+    const m = ed.m, off = new Set(m.off || []);
+    const wires = m.wires.slice().sort((a, b) => a - b);
+    const matrix = wires.length && m.pins.length ? `<table class="matrix" style="width:auto"><tr><th>Runs with</th>${m.pins.map(p => `<th>Ø${p.dia || '?'}<br>${esc(p.profile)}</th>`).join('')}</tr>
+      ${wires.map(w => `<tr><td>${w} mm</td>${m.pins.map(p => { const k = SA.comboKey({ wire: w, pin: p.dia, profile: p.profile }); return `<td><input type="checkbox" data-combo="${esc(k)}" ${off.has(k) ? '' : 'checked'}></td>`; }).join('')}</tr>`).join('')}</table>`
+      : '<span class="muted">Add diameters and pins to choose which run together.</span>';
+    main.innerHTML = `<h2>${id === 'new' ? 'Add machine' : 'Edit machine'}</h2>
+      <div class="card">
+        <label class="f"><span>Machine name</span><input type="text" id="mName" value="${esc(m.name)}" style="width:320px"></label>
+        <label class="f"><span>Runs</span>
+          <label><input type="radio" name="feed" value="bar" ${m.feed !== 'coil' ? 'checked' : ''}> Bar</label> &nbsp;
+          <label><input type="radio" name="feed" value="coil" ${m.feed === 'coil' ? 'checked' : ''}> Coil</label></label>
+        <label class="f"><span>Bar or wire diameters it runs, in mm, separated by commas</span><input type="text" id="mWires" value="${esc(ed.wiresText)}" placeholder="10, 12, 16" style="width:320px"></label>
+        <div class="f"><span class="muted" style="font-size:12px">Pins. A 64 round and a 64 hoe-like are two pins.</span>
+          <div id="mPins">${m.pins.map((p, i) => `<div class="row" style="margin:4px 0">Ø <input type="number" min="1" step="1" data-pin="${i}" value="${p.dia || ''}" style="width:80px"> mm
+            <select data-prof="${i}">${SA.PROFILES.map(x => `<option ${x === p.profile ? 'selected' : ''}>${x}</option>`).join('')}</select>
+            <button class="link danger" data-delpin="${i}">remove</button></div>`).join('')}</div>
+          <button id="addPin">Add pin</button></div>
+        <h3>Which bar runs on which pin</h3>
+        <div id="mMatrix" style="margin-bottom:12px">${matrix}</div>
+        <label class="f"><input type="checkbox" id="mRadius" ${m.radius ? 'checked' : ''}> Can make radius shapes (arc segments)</label>
+        <label class="f"><input type="checkbox" id="mReverse" ${m.reverse ? 'checked' : ''}> Can reverse bend <span class="muted">(recorded, not used yet)</span></label>
+        <label class="f"><span>Notes</span><textarea id="mNotes" rows="2" style="width:100%;max-width:560px">${esc(m.notes || '')}</textarea></label>
+        <div class="row"><button class="primary" id="mSave">Save machine</button><a class="btn" href="#machines">Cancel</a>
+          <span class="red" id="mErr"></span><span style="flex:1"></span>${id === 'new' ? '' : '<button class="danger" id="mDelete">Delete machine</button>'}</div>
+      </div>`;
+    const read = () => {
+      m.name = $('#mName').value.trim(); m.feed = document.querySelector('input[name=feed]:checked').value;
+      ed.wiresText = $('#mWires').value;
+      m.wires = [...new Set(ed.wiresText.split(/[\s,;]+/).map(num).filter(v => v > 0))];
+      main.querySelectorAll('[data-pin]').forEach(e => { m.pins[+e.dataset.pin].dia = num(e.value); });
+      main.querySelectorAll('[data-prof]').forEach(e => { m.pins[+e.dataset.prof].profile = e.value; });
+      main.querySelectorAll('[data-combo]').forEach(e => { const k = e.dataset.combo; const s = new Set(m.off); if (e.checked) s.delete(k); else s.add(k); m.off = [...s]; });
+      m.radius = $('#mRadius').checked; m.reverse = $('#mReverse').checked; m.notes = $('#mNotes').value;
+    };
+    const again = () => { read(); machineEdit(id); };
+    $('#mWires').addEventListener('change', again);
+    main.querySelectorAll('[data-pin],[data-prof]').forEach(e => e.addEventListener('change', again));
+    $('#addPin').addEventListener('click', () => { read(); m.pins.push({ dia: null, profile: 'round' }); machineEdit(id); const all = main.querySelectorAll('[data-pin]'); all[all.length - 1].focus(); });
+    main.querySelectorAll('[data-delpin]').forEach(e => e.addEventListener('click', () => { read(); m.pins.splice(+e.dataset.delpin, 1); machineEdit(id); }));
+    $('#mSave').addEventListener('click', () => {
+      read();
+      const err = !m.name ? 'Give the machine a name.' : !m.wires.length ? 'Add at least one diameter.' : !m.pins.length ? 'Add at least one pin.' : m.pins.some(p => !(p.dia > 0)) ? 'Every pin needs a diameter.'
+        : new Set(m.pins.map(p => p.dia + p.profile)).size < m.pins.length ? 'Two pins are the same.' : machines().some(x => x.id !== m.id && x.name.toLowerCase() === m.name.toLowerCase()) ? 'Another machine has that name.' : '';
+      if (err) { $('#mErr').textContent = err; return; }
+      const valid = new Set(); m.wires.forEach(w => m.pins.forEach(p => valid.add(SA.comboKey({ wire: w, pin: p.dia, profile: p.profile }))));
+      m.off = (m.off || []).filter(k => valid.has(k));
+      SA.put('machines', m); ed = null; location.hash = '#machines';
+    });
+    const del = $('#mDelete');
+    if (del) del.addEventListener('click', () => { if (confirm(`Delete ${m.name}? Its saved pieces stay in Review data.`)) { SA.remove('machines', m.id); ed = null; location.hash = '#machines'; } });
+  }
+
+  // ---------- shapes ----------
+  function shapesView() {
+    const custom = SA.customShapes(), prim = SA.BUILTIN.filter(s => s.kind === 'primitive'), comp = SA.BUILTIN.filter(s => s.kind === 'composite');
+    const open = s => `shape-builder.html#g=12&p=48&s=${encodeURIComponent(s.code.replace(/l0/g, 'l200'))}`;
+    main.innerHTML = `<div class="row" style="justify-content:space-between"><h2>Shapes in the audit</h2><a class="btn primary" href="shape-builder.html">Add a shape in the builder</a></div>
+      <div class="card"><b>Added shapes</b> <span class="muted">Every machine is asked for its shortest version of each. Shapes with an arc only go to machines that make radius shapes.</span>
+        ${custom.length ? `<table style="margin-top:8px"><tr><th>Name</th><th>Shape code</th><th>Arc</th><th></th></tr>${custom.map(s => `<tr><td><b>${esc(s.name)}</b></td><td><code>${esc(s.code)}</code></td><td>${s.hasArc ? 'Yes' : ''}</td>
+          <td><a class="btn" href="shape-builder.html#g=12&p=48&s=${encodeURIComponent(s.code)}">Open</a> <button class="danger" data-del="${s.id}">Remove</button></td></tr>`).join('')}</table>`
+        : '<div class="muted" style="margin-top:8px">None yet. Draw one in the Shape builder and use Add to audit.</div>'}</div>
+      <div class="card"><b>Built-in composite shapes</b> <span class="muted">Whole shapes whose limit is not between two bends.</span>
+        <table style="margin-top:8px">${comp.map(s => `<tr><td>${esc(s.name)}</td><td><code>${s.id}</code></td><td><a class="btn" href="${open(s)}">Open</a></td></tr>`).join('')}</table></div>
+      <div class="card"><b>Built-in primitives</b> <span class="muted">${prim.length} pieces: every one-bend and ordered two-bend combination of 45°, 90°, 135° and 180°. Bend 1 is made first. Lengths are left to the operator.</span>
+        <table style="margin-top:8px">${prim.map(s => `<tr><td>${esc(s.name)}</td><td><code>${s.id}</code></td><td><a class="btn" href="${open(s)}">Open</a></td></tr>`).join('')}</table></div>`;
+    main.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => { if (confirm('Remove this shape from the audit? Pieces already saved for it stay in Review data.')) { SA.remove('shapes', b.dataset.del); render(); } }));
+  }
+
+  // ---------- review ----------
+  const STATUS = { done: 'Made', skip: 'Skipped', cannot: "Can't make" };
+  function reviewView() {
+    const ms = new Map(SA.rows('machines').map(m => [m.id, m.name]));
+    const all = SA.rows('audits').sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const shown = all.filter(r => (!filt.machine || r.machine_id === filt.machine) && (!filt.status || r.status === filt.status) && (filt.voided || !r.voided));
+    const usedMachines = [...new Set(all.map(r => r.machine_id))];
+    main.innerHTML = `<h2>Review data</h2>
+      <div class="card"><div class="row" style="margin-bottom:8px">
+        <select id="fMachine"><option value="">All machines</option>${usedMachines.map(id => `<option value="${id}" ${filt.machine === id ? 'selected' : ''}>${esc(ms.get(id) || '(deleted machine)')}</option>`).join('')}</select>
+        <select id="fStatus"><option value="">Any result</option>${Object.keys(STATUS).map(k => `<option value="${k}" ${filt.status === k ? 'selected' : ''}>${STATUS[k]}</option>`).join('')}</select>
+        <label><input type="checkbox" id="fVoid" ${filt.voided ? 'checked' : ''}> Show voided</label>
+        <span class="muted">${shown.length} of ${all.length} records</span></div>
+      ${shown.length ? `<table><tr><th>When</th><th>Operator</th><th>Machine</th><th>Bar</th><th>Pin</th><th>Shape</th><th>Lengths achieved</th><th>Result</th><th></th></tr>
+        ${shown.slice(0, 500).map(r => `<tr class="${r.voided ? 'void' : ''}"><td>${when(r.at)}</td><td>${esc(r.operator)}</td><td>${esc(ms.get(r.machine_id) || '(deleted machine)')}</td><td class="num">${r.wire}</td>
+          <td>Ø${r.pin} ${esc(r.profile)}</td><td>${esc(r.shape_name)}</td><td class="num">${r.status === 'done' ? r.legs.map(v => v == null ? '–' : fmt(v)).join(' / ') + (r.rev ? ' <span class="muted">(from the end)</span>' : '') : ''}</td>
+          <td>${STATUS[r.status] || r.status}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ''}</td>
+          <td><button data-void="${r.id}">${r.voided ? 'Restore' : 'Void'}</button></td></tr>`).join('')}</table>${shown.length > 500 ? '<div class="muted">Showing the newest 500.</div>' : ''}`
+        : '<span class="muted">Nothing saved yet.</span>'}
+      <div class="muted" style="margin-top:8px">Voiding a record takes it out of the minimums and puts its piece back in that machine's queue.</div></div>`;
+    $('#fMachine').addEventListener('change', e => { filt.machine = e.target.value; render(); });
+    $('#fStatus').addEventListener('change', e => { filt.status = e.target.value; render(); });
+    $('#fVoid').addEventListener('change', e => { filt.voided = e.target.checked; render(); });
+    main.querySelectorAll('[data-void]').forEach(b => b.addEventListener('click', () => { const r = SA.get('audits', b.dataset.void); r.voided = !r.voided; SA.put('audits', r); render(); }));
+  }
+
+  // ---------- findings ----------
+  function findingsView() {
+    const groups = SA.minimums();
+    const wires = [...new Set(groups.map(g => g.wire))].sort((a, b) => a - b);
+    if (!wires.includes(+filt.wire)) filt.wire = wires[0] || '';
+    const pins = [...new Set(groups.filter(g => g.wire === +filt.wire).map(g => g.pin))].sort((a, b) => a - b);
+    if (!pins.includes(+filt.pin)) filt.pin = pins[0] || '';
+    const cols = groups.filter(g => g.wire === +filt.wire && g.pin === +filt.pin).sort((a, b) => a.machine.localeCompare(b.machine) || a.profile.localeCompare(b.profile));
+    // straights become segment lengths for this bar and pin, so the numbers read as they would on a schedule
+    const Ro = +filt.pin / 2 + SA.actualOf(+filt.wire);
+    const len = (id, straight) => straight + SA.primInfo(id).angles.reduce((s, a) => s + SA.setbackOf(a, Ro), 0);
+    let table = '<span class="muted">No pieces saved yet.</span>';
+    if (cols.length) {
+      table = `<table><tr><th>Segment</th><th>Best</th>${cols.map(g => `<th>${esc(g.machine)}<br>${esc(g.profile)}</th>`).join('')}</tr>${SA.PRIM_IDS.map(id => {
+        const vals = cols.map(g => g.prim[id] ? len(id, g.prim[id].straight) : null), have = vals.filter(v => v != null), best = have.length ? Math.min(...have) : null;
+        return `<tr><td>${esc(SA.primInfo(id).name)}</td><td class="num"><b>${best == null ? '' : fmt(best)}</b></td>${vals.map((v, i) => `<td class="num ${v != null && v === best && have.length > 1 ? 'green' : ''}">${v == null ? '<span class="muted">–</span>' : fmt(v) + (cols[i].prim[id].tradeoff ? ' <span class="amber" title="From a piece saved in more than one version">⇄</span>' : '')}</td>`).join('')}</tr>`;
+      }).join('')}</table><div class="muted" style="margin-top:6px">Shortest segment made, out-to-out, in mm. ⇄ marks a minimum from a piece saved in more than one version: it may not hold with the neighbouring segments at their own minimums.</div>`;
+    }
+    // trade-offs: pieces with more than one version
+    const ms = new Map(SA.rows('machines').map(m => [m.id, m.name])), byPiece = new Map();
+    for (const r of SA.rows('audits')) if (!r.voided && r.status === 'done') { const k = `${r.machine_id}|${SA.comboKey(r)}|${r.shape_id}`; if (!byPiece.has(k)) byPiece.set(k, []); byPiece.get(k).push(r); }
+    const multi = [...byPiece.values()].filter(v => v.length > 1);
+    const cannot = SA.rows('audits').filter(r => !r.voided && r.status === 'cannot');
+    main.innerHTML = `<h2>Findings</h2>
+      <div class="card"><div class="row" style="margin-bottom:8px"><b>Minimums by machine</b>
+        <label>Bar <select id="fWire">${wires.map(w => `<option ${w === +filt.wire ? 'selected' : ''}>${w}</option>`).join('')}</select> mm</label>
+        <label>Pin Ø <select id="fPin">${pins.map(p => `<option ${p === +filt.pin ? 'selected' : ''}>${p}</option>`).join('')}</select> mm</label></div>${table}</div>
+      <div class="card"><b>Trade-offs</b> <span class="muted">Pieces saved in more than one version, where one segment could only get shorter by letting another get longer.</span>
+        ${multi.length ? `<table style="margin-top:8px"><tr><th>Machine</th><th>Bar</th><th>Pin</th><th>Shape</th><th>Versions</th><th>Spread per segment</th></tr>${multi.map(v => {
+          const r = v[0], n = Math.max(...v.map(x => x.legs.length));
+          const spread = Array.from({ length: n }, (_, i) => { const xs = v.map(x => x.legs[i]).filter(x => x != null); return xs.length ? Math.max(...xs) - Math.min(...xs) : 0; });
+          return `<tr><td>${esc(ms.get(r.machine_id) || '(deleted machine)')}</td><td class="num">${r.wire}</td><td>Ø${r.pin} ${esc(r.profile)}</td><td>${esc(r.shape_name)}</td>
+            <td class="num">${v.map(x => x.legs.map(fmt).join(' / ')).join('<br>')}</td><td class="num">${spread.map(fmt).join(' / ')}</td></tr>`; }).join('')}</table>` : '<div class="muted" style="margin-top:8px">None recorded.</div>'}</div>
+      <div class="card"><b>Can't make</b>
+        ${cannot.length ? `<table style="margin-top:8px"><tr><th>Machine</th><th>Bar</th><th>Pin</th><th>Shape</th><th>Reason</th></tr>${cannot.map(r => `<tr><td>${esc(ms.get(r.machine_id) || '(deleted machine)')}</td><td class="num">${r.wire}</td><td>Ø${r.pin} ${esc(r.profile)}</td><td>${esc(r.shape_name)}</td><td>${esc(r.note)}</td></tr>`).join('')}</table>` : '<div class="muted" style="margin-top:8px">None recorded.</div>'}</div>`;
+    $('#fWire').addEventListener('change', e => { filt.wire = e.target.value; filt.pin = ''; render(); });
+    $('#fPin').addEventListener('change', e => { filt.pin = e.target.value; render(); });
+  }
+
+  // ---------- settings ----------
+  function settingsView() {
+    main.innerHTML = `<h2>Settings</h2>
+      <div class="card"><b>Database (Supabase)</b>
+        <div class="muted" style="margin:4px 0 10px">Without a connection everything is saved in this browser on this laptop only. Run <code>supabase/schema.sql</code> in the project once, then enter the project URL and anon key here on each laptop.</div>
+        <label class="f"><span>Project URL</span><input type="text" id="sUrl" value="${esc(SA.cfg.url)}" placeholder="https://xxxx.supabase.co" style="width:420px"></label>
+        <label class="f"><span>Anon (public) key</span><input type="password" id="sKey" value="${esc(SA.cfg.key)}" style="width:420px"></label>
+        <div class="row"><button class="primary" id="sSave">Save and sync now</button><span id="sState" class="muted">${esc(SA.syncState().text)}</span></div></div>
+      <div class="card"><b>Export and import</b>
+        <div class="muted" style="margin:4px 0 10px">Export is every machine, shape and saved piece as one JSON file. Import merges a file into what is here; the newer copy of each record wins.</div>
+        <div class="row"><button id="sExport">Export everything</button><button id="sImport">Import a file…</button><input type="file" id="sFile" accept=".json,application/json" hidden><span id="sMsg" class="muted"></span></div></div>`;
+    $('#sSave').addEventListener('click', () => { SA.saveCfg({ url: $('#sUrl').value.trim(), key: $('#sKey').value.trim() }); $('#sState').textContent = 'Syncing…'; SA.sync(); });
+    $('#sExport').addEventListener('click', () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([SA.exportAll()], { type: 'application/json' }));
+      a.download = `shape-audit-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(a.href);
+    });
+    $('#sImport').addEventListener('click', () => $('#sFile').click());
+    $('#sFile').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f) f.text().then(t => { try { $('#sMsg').textContent = `Imported ${SA.importAll(t)} records.`; } catch (err) { $('#sMsg').textContent = 'Not a valid export file: ' + err.message; } });
+    });
+  }
+
+  // ---------- shell ----------
+  const VIEW_FN = { home, machines: machinesView, shapes: shapesView, review: reviewView, findings: findingsView, settings: settingsView };
+  function render() {
+    const r = VIEW_FN[route()] ? route() : 'home';
+    $('#nav').innerHTML = VIEWS.map(([k, label]) => `<a href="#${k}" class="${k === r ? 'on' : ''}">${label}</a>`).join('') + '<a href="shape-builder.html">Shape builder</a>';
+    const sy = SA.syncState(), el = $('#sync');
+    el.textContent = sy.text; el.classList.toggle('bad', !sy.ok);
+    VIEW_FN[r]();
+  }
+  window.addEventListener('hashchange', render);
+  SA.onChange(() => {
+    const sy = SA.syncState(), el = $('#sync'), st = $('#sState');
+    el.textContent = sy.text; el.classList.toggle('bad', !sy.ok);
+    if (st) st.textContent = sy.text;
+    if (!ed && route() !== 'settings' && !main.contains(document.activeElement)) render();   // new data arrived; don't redraw under someone typing
+  });
+  render();
+  SA.sync();
+})();
+</script>
+</body>
+</html>
