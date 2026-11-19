@@ -108,7 +108,57 @@ l220,w90,r5000,l5000,w0,l1000     90 cog, arc R5000 of length 5000, tangent join
 The earlier space-separated form (`250 135d 1000 90u 500 C`) still loads.
 The URL hash carries the code, bar and pin diameter, the view and any rotation, so a link reproduces the shape exactly.
 
+## Phase 2: Machine minimums
+
+A minimum belongs to a segment and depends only on the bend at each end of it, the order those two bends are
+made in, the bar and the pin. So every shape breaks down into a fixed set of **primitives**, 40 per bar and pin:
+
+| Primitive | Meaning | Count |
+|---|---|---|
+| `lead-A` | free end, then the first bend made | 4 |
+| `tail-A` | the last bend made, then the cut (the machine can draw the wire back, so this differs from the lead) | 4 |
+| `int-s-A-B` | segment between bend A (made first) and bend B (made second), turning the same way | 16 |
+| `int-o-A-B` | the same, turning opposite ways | 16 |
+
+A and B are 45, 90, 135 or 180. A pin is its diameter and its profile (round, hoe-like, shark fin); a 64 round
+and a 64 hoe-like are separate pins with their own results. One pin per piece. Minimums are the same up or down.
+
+**Composites** are whole shapes measured as one thing, because their limit is not pairwise: on a tight closed
+tie it is the bent bar coming back round behind the pin. `tie-sq-135` (square closed tie, 135° hooks) is the
+first; add more to `COMPOSITES` in the script. They are recorded in the data file but the check does not use
+them yet.
+
+### Machine check panel
+
+Under the stats. **Load data…** takes a capability file (see `capability-sample.json`, whose numbers are
+invented). **Copy blank data** gives a file for the current bar and pin with every primitive listed.
+**Load test piece…** puts a primitive's test shape in the builder with the segment under test dimensioned.
+The loaded data is remembered in the browser.
+
+```json
+{ "machines": [ { "name": "…", "sets": [ { "wire": 12, "actual": 13.8, "pin": 48, "profile": "round",
+    "results": { "int-s-90-90": { "pass": 150, "fail": 145 } } } ] } ] }
+```
+
+`pass` is the shortest segment that was made and `fail` the longest that could not be, out-to-out as typed on
+the machine. Either can be missing.
+
+For each machine with data for the shape's bar and pin diameter, the shape is checked in both feed orders
+(bent from the start of bar, bent from the end), since the order decides which end is the lead, which is the
+tail, and which bend of each pair comes first. Each segment is **Pass** at or above the shortest made,
+**Fail** at or below the longest that failed, and **Unknown** in between or with no data. A feed order fails
+if any segment fails and passes only if every segment passes.
+
+Brackets are compared as straights (tangent to tangent), worked out with the data set's own bar and pin, then
+shown as segment lengths for the shape. Angles between the four are interpolated on the straight and marked
+as interpolated. Bends under 45°, arc segments and shapes with per-bend pins are not covered and come out
+Unknown. Collisions with the machine or with the bar itself are not checked.
+
 ### Parked for later
+
+- Machine setup and an operator walkthrough of the primitives, writing trials to Supabase.
+- Factory-wide rules export for scheduling and detailing.
+- Machine face and pin outlines as collision shapes, for maximums and closed-shape clearance.
 
 - Non-planar shapes (a rotation angle per bend). The standard lists 3D input as a future item.
 - Machine capability rules per model and gauge, captured by clicking segments and bends on a shape,

@@ -185,6 +185,21 @@
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
+  #check { border-top: 1px solid var(--line); padding: 10px 14px; font-size: 13px; }
+  #check .chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+  #check .chead .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  #check .chead .spacer { flex: 1; }
+  #check .chead button, #check .chead select { font-size: 12px; padding: 3px 8px; }
+  #check .chead select { font: inherit; font-size: 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); max-width: 210px; }
+  #check .muted { color: var(--muted); }
+  #check .verdict { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
+  #check .ok { color: var(--arc); } #check .bad { color: var(--red); } #check .unk { color: var(--amber); }
+  #check table { border-collapse: collapse; width: 100%; }
+  #check td, #check th { text-align: left; vertical-align: top; padding: 4px 14px 4px 0; border-top: 1px solid #eef0f3; }
+  #check th { color: var(--muted); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; border-top: 0; }
+  #check .st { font-weight: 650; }
+  #check .why { color: var(--ink); font-size: 12px; }
+  #check .err { color: var(--red); }
 </style>
 </head>
 <body>
@@ -245,6 +260,18 @@
       <g id="g"></g>
     </svg>
     <div id="stats"></div>
+    <div id="check">
+      <div class="chead">
+        <span class="k">Machine check</span> <span id="capSrc" class="muted"></span>
+        <span class="spacer"></span>
+        <select id="primSel" title="Load a primitive test piece into the builder. The segment under test gets its dimension line."></select>
+        <button id="capLoad" title="Load a capability data file (JSON)">Load data…</button>
+        <input id="capFile" type="file" accept=".json,application/json" hidden>
+        <button id="capBlank" title="Copy a blank data file for this bar and pin, with every primitive listed, to fill in by hand">Copy blank data</button>
+        <button id="capClear" title="Forget the loaded data">Clear</button>
+      </div>
+      <div id="checkBody"></div>
+    </div>
   </section>
 </main>
 
@@ -255,7 +282,7 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-29 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-11-19 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
 <script>
@@ -1068,12 +1095,196 @@
     return true;
   }
 
+  // ---------- machine capability: primitives and minimums ----------
+  // A minimum belongs to a segment and depends only on the bend at each end of it, the order those bends are
+  // made in, the bar and the pin. So every shape breaks down into a fixed set of primitives:
+  //   lead-A       free end, then the first bend made (A)
+  //   tail-A       the last bend made (A), then the cut
+  //   int-s-A-B    segment between bend A (made first) and bend B (made second), both turning the same way
+  //   int-o-A-B    the same with the bends turning opposite ways
+  // A and B are 45, 90, 135 or 180; other angles are interpolated. 4 + 4 + 16 + 16 = 40 per bar and pin.
+  // Composites are whole shapes measured as one thing because the limit is not pairwise (the bent bar coming
+  // back round behind the pin). They are recorded but not used by the check yet. Add more to COMPOSITES.
+  const GRID = [45, 90, 135, 180];
+  const PRIMS = [];
+  for (const a of GRID) PRIMS.push({ id: `lead-${a}`, group: 'Lead end (first bend)', name: `${a}°`, leg: 0, code: x => `l${x},w${a},l500` });
+  for (const a of GRID) PRIMS.push({ id: `tail-${a}`, group: 'Tail end (last bend, then cut)', name: `${a}°`, leg: 1, code: x => `l500,w${a},l${x}` });
+  for (const [k, label] of [['s', 'Between bends, same direction'], ['o', 'Between bends, opposite directions']])
+    for (const a of GRID) for (const b of GRID)
+      PRIMS.push({ id: `int-${k}-${a}-${b}`, group: label, name: `${a}° then ${b}°`, leg: 1, code: x => `l300,w${a},l${x},w${k === 's' ? b : -b},l300` });
+  const COMPOSITES = [
+    { id: 'tie-sq-135', group: 'Composite shapes', name: 'Square closed tie, 135° hooks', leg: 1, code: x => `l100,w135,l${x},w90,l${x},w90,l${x},w90,l${x},w135,l100` },
+  ];
+  const TEST_START = 200;   // length the segment under test starts at when a test piece is loaded
+  const CAP_KEY = 'shapeBuilderCapability';
+  let cap = null, capErr = '';
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const setbackOf = (a, Ro) => a >= 90 ? Ro : Ro * Math.tan(rad(a) / 2);
+
+  // Data file: { machines: [ { name, sets: [ { wire, actual?, pin, profile, results: { id: { pass, fail } }, composites? } ] } ] }
+  // pass = shortest segment length that was made, fail = longest that could not be, both out-to-out as typed on
+  // the machine. Either may be missing. Lengths are turned into straights with the set's own bar and pin.
+  function normaliseCap(obj) {
+    if (!obj || !Array.isArray(obj.machines)) throw new Error('Expected { "machines": [ ... ] }.');
+    const ids = new Set(PRIMS.map(p => p.id)), unknownIds = new Set();
+    const machines = obj.machines.map((m, mi) => {
+      if (!m || !m.name) throw new Error(`Machine ${mi + 1} has no name.`);
+      return { name: String(m.name), sets: (m.sets || []).map((s, si) => {
+        const wire = num(s.wire), pin = num(s.pin);
+        if (!wire || !pin) throw new Error(`${m.name}, set ${si + 1}: wire and pin are required.`);
+        const results = {};
+        for (const id in (s.results || {})) {
+          if (!ids.has(id)) { unknownIds.add(id); continue; }
+          const r = s.results[id] || {}, pass = num(r.pass), fail = num(r.fail);
+          if (pass != null && fail != null && fail >= pass) throw new Error(`${m.name}, N${wire} Ø${pin}, ${id}: fail ${fail} is not below pass ${pass}.`);
+          if (pass != null || fail != null) results[id] = { pass, fail };
+        }
+        return { wire, pin, actual: num(s.actual) || actualOf(wire), profile: s.profile ? String(s.profile) : 'round', results, composites: s.composites || {} };
+      }) };
+    });
+    return { machines, unknownIds: [...unknownIds] };
+  }
+  function setCap(text, source) {
+    try { cap = normaliseCap(JSON.parse(text)); cap.source = source || ''; capErr = ''; try { localStorage.setItem(CAP_KEY, JSON.stringify({ text, source })); } catch (e) { /* storage unavailable */ } }
+    catch (e) { capErr = e.message; }
+  }
+  function blankCap() {
+    const results = {}, composites = {};
+    for (const p of PRIMS) results[p.id] = { pass: null, fail: null };
+    for (const c of COMPOSITES) composites[c.id] = { pass: null, fail: null };
+    return JSON.stringify({ machines: [{ name: 'MACHINE NAME', sets: [{ wire: st.gauge, actual: st.actual, pin: st.pin, profile: 'round', results, composites }] }] }, null, 2);
+  }
+
+  // Grid angles and weights for an angle: one on a grid angle, two between, none under 45.
+  function gridWeights(a) {
+    if (a < GRID[0] - 1e-6 || a > 180 + 1e-6) return null;
+    for (let i = 0; i < GRID.length; i++) {
+      if (Math.abs(a - GRID[i]) < 1e-6) return [[GRID[i], 1]];
+      if (i < GRID.length - 1 && a > GRID[i] && a < GRID[i + 1]) { const t = (a - GRID[i]) / (GRID[i + 1] - GRID[i]); return [[GRID[i], 1 - t], [GRID[i + 1], t]]; }
+    }
+    return null;
+  }
+  // Bracket for one segment on one data set, as straights (tangent point to tangent point, or to the bar end).
+  // kind is lead, tail, int-s or int-o; a is the first bend made (or the only one), b the second.
+  function lookup(set, kind, a, b) {
+    const internal = kind === 'int-s' || kind === 'int-o';
+    const wa = gridWeights(a), wb = internal ? gridWeights(b) : [[null, 1]];
+    if (!wa || !wb) return { none: 'bend under 45° has no primitive' };
+    const Ro = set.pin / 2 + set.actual, ids = [];
+    let pass = 0, fail = 0, hasP = true, hasF = true;
+    for (const [ga, w1] of wa) for (const [gb, w2] of wb) {
+      const id = internal ? `${kind}-${ga}-${gb}` : `${kind}-${ga}`, r = set.results[id];
+      const sb = setbackOf(ga, Ro) + (gb == null ? 0 : setbackOf(gb, Ro));
+      ids.push(id);
+      if (r && r.pass != null) pass += w1 * w2 * (r.pass - sb); else hasP = false;
+      if (r && r.fail != null) fail += w1 * w2 * (r.fail - sb); else hasF = false;
+    }
+    return { pass: hasP ? pass : null, fail: hasF ? fail : null, interp: ids.length > 1, ids };
+  }
+  // One feed order on one data set. rev = false: bent from the start of bar, so Segment 1 is the lead end.
+  function checkOrder(an, set, rev) {
+    const n = st.legs.length, legs = [];
+    for (let i = 0; i < n; i++) {
+      const leg = an.legs[i], bL = i > 0 ? st.bends[i - 1] : null, bR = i < n - 1 ? st.bends[i] : null;
+      const out = { i, status: 'unk', text: '' };
+      legs.push(out);
+      if (leg.empty) { out.text = 'no length'; continue; }
+      if (leg.arc) { out.text = 'arc segment, not covered'; continue; }
+      if (leg.short) { out.status = 'bad'; out.text = `${fmt(leg.L)} is under the geometric minimum ${fmt(leg.min)}`; continue; }
+      let lk;
+      if (bL && bR) {
+        const first = rev ? bR : bL, second = rev ? bL : bR;
+        lk = lookup(set, (first.d > 0) === (second.d > 0) ? 'int-s' : 'int-o', clampAngle(first.a), clampAngle(second.a));
+      } else {
+        const lead = rev ? i === n - 1 : i === 0;
+        lk = lookup(set, lead ? 'lead' : 'tail', clampAngle((bL || bR).a));
+      }
+      const tag = lk.interp ? ', interpolated' : '';
+      if (lk.none) { out.text = lk.none; continue; }
+      const minLeg = lk.pass == null ? null : lk.pass + leg.min, failLeg = lk.fail == null ? null : lk.fail + leg.min;
+      out.ids = lk.ids; out.min = minLeg;
+      if (minLeg != null && leg.L >= minLeg - 0.5) { out.status = 'ok'; out.text = `min ${fmt(minLeg)}${tag}`; }
+      else if (failLeg != null && leg.L <= failLeg + 0.5) { out.status = 'bad'; out.text = `${fmt(leg.L)} fails: ${fmt(failLeg)} could not be made` + (minLeg != null ? `, min ${fmt(minLeg)}` : '') + tag; }
+      else if (minLeg != null && failLeg != null) out.text = `${fmt(leg.L)} is untested: between fail ${fmt(failLeg)} and pass ${fmt(minLeg)}${tag}`;
+      else if (minLeg != null) out.text = `${fmt(leg.L)} is under the shortest made, ${fmt(minLeg)}, with no fail recorded${tag}`;
+      else if (failLeg != null) out.text = `${fmt(leg.L)} is over the longest fail, ${fmt(failLeg)}, with no pass recorded${tag}`;
+      else out.text = `no data (${lk.ids.join(', ')})`;
+    }
+    const status = legs.some(l => l.status === 'bad') ? 'bad' : legs.every(l => l.status === 'ok') ? 'ok' : 'unk';
+    return { status, legs };
+  }
+  const RANK = { ok: 2, unk: 1, bad: 0 };
+  function checkShape(an) {
+    if (!cap) return null;
+    const out = { rows: [], others: [], note: '' };
+    if (st.legs.length < 2 || !st.bends.some(b => clampAngle(b.a) > 0)) { out.note = 'No bends to check.'; return out; }
+    if (st.bends.some(b => b.pin && b.pin !== st.pin)) { out.note = 'This shape has its own pin on some bends. Minimums are recorded for one pin per piece, so it is not checked.'; return out; }
+    for (const m of cap.machines) for (const set of m.sets) {
+      if (set.wire !== st.gauge) continue;
+      if (set.pin !== st.pin) { out.others.push(`Ø${set.pin} ${set.profile} on ${m.name}`); continue; }
+      const fwd = checkOrder(an, set, false), rev = checkOrder(an, set, true);
+      out.rows.push({ machine: m.name, set, fwd, rev, best: RANK[fwd.status] >= RANK[rev.status] ? fwd.status : rev.status });
+    }
+    out.rows.sort((a, b) => RANK[b.best] - RANK[a.best]);
+    return out;
+  }
+  const STATUS = { ok: 'Pass', bad: 'Fail', unk: 'Unknown' };
+  function renderCheck(an) {
+    const body = $('#checkBody');
+    $('#capSrc').textContent = cap ? `${cap.source ? cap.source + ' · ' : ''}${cap.machines.length} machine${cap.machines.length === 1 ? '' : 's'}` : '';
+    let h = capErr ? `<div class="err">Data not loaded: ${esc(capErr)}</div>` : '';
+    if (!cap) { body.innerHTML = h + '<div class="muted">No capability data loaded. Load a data file to check this shape against each machine\'s minimums, or copy a blank one to fill in.</div>'; return; }
+    if (cap.unknownIds.length) h += `<div class="unk">Ignored unrecognised primitives: ${esc(cap.unknownIds.join(', '))}</div>`;
+    const res = checkShape(an);
+    if (res.note) { body.innerHTML = h + `<div class="muted">${esc(res.note)}</div>`; return; }
+    if (!res.rows.length) {
+      h += `<div class="verdict unk">No data for N${st.gauge} on a Ø${st.pin} pin.</div>`;
+      if (res.others.length) h += `<div class="muted">N${st.gauge} has data on: ${esc(res.others.join('; '))}.</div>`;
+      body.innerHTML = h; return;
+    }
+    const good = res.rows.filter(r => r.best === 'ok'), maybe = res.rows.filter(r => r.best === 'unk');
+    const where = r => `${esc(r.machine)} (${esc(r.set.profile)} pin, fed from the ${r.fwd.status === 'ok' ? (r.rev.status === 'ok' ? 'start or the end' : 'start') : 'end'})`;
+    if (good.length) h += `<div class="verdict ok">Makeable on ${good.map(where).join(', ')}.</div>`;
+    else if (maybe.length) h += `<div class="verdict unk">Undetermined: not ruled out on ${maybe.map(r => esc(r.machine)).join(', ')}, but not every segment is covered by a recorded pass.</div>`;
+    else h += '<div class="verdict bad">Under the recorded minimums on every machine with data for this bar and pin.</div>';
+    const cell = o => `<span class="st ${o.status}">${STATUS[o.status]}</span>` + o.legs.filter(l => l.status !== 'ok').map(l => `<div class="why">Segment ${l.i + 1}: ${esc(l.text)}</div>`).join('');
+    h += `<table><tr><th>Machine</th><th>Pin</th><th>Bent from the start</th><th>Bent from the end</th></tr>${res.rows.map(r =>
+      `<tr><td>${esc(r.machine)}</td><td>Ø${r.set.pin} ${esc(r.set.profile)}</td><td>${cell(r.fwd)}</td><td>${cell(r.rev)}</td></tr>`).join('')}</table>`;
+    h += '<div class="muted" style="margin-top:6px">Checks segment minimums only. Collisions with the machine or with the bar itself are not checked.</div>';
+    if (res.others.length) h += `<div class="muted">Other pins with N${st.gauge} data: ${esc(res.others.join('; '))}.</div>`;
+    body.innerHTML = h;
+  }
+  {
+    const sel = $('#primSel'), groups = new Map();
+    for (const p of PRIMS.concat(COMPOSITES)) { if (!groups.has(p.group)) groups.set(p.group, []); groups.get(p.group).push(p); }
+    sel.innerHTML = '<option value="">Load test piece…</option>' + [...groups].map(([gname, ps]) =>
+      `<optgroup label="${esc(gname)}">${ps.map(p => `<option value="${p.id}">${esc(p.name)} (${p.id})</option>`).join('')}</optgroup>`).join('');
+    sel.addEventListener('change', () => {
+      const p = PRIMS.concat(COMPOSITES).find(q => q.id === sel.value);
+      sel.value = '';
+      if (!p) return;
+      Object.assign(st, parseCode(p.code(TEST_START)));
+      st.pins = [p.leg]; st.view = 'standard'; st.rot = 0;
+      rebuild({ kind: 'len', i: p.leg, select: true });
+    });
+    $('#capLoad').addEventListener('click', () => $('#capFile').click());
+    $('#capFile').addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (!f) return;
+      f.text().then(t => { setCap(t, f.name); e.target.value = ''; onChange(); });
+    });
+    $('#capClear').addEventListener('click', () => { cap = null; capErr = ''; try { localStorage.removeItem(CAP_KEY); } catch (e) { /* storage unavailable */ } onChange(); });
+    try { const saved = JSON.parse(localStorage.getItem(CAP_KEY) || 'null'); if (saved && saved.text) setCap(saved.text, saved.source); } catch (e) { /* storage unavailable */ }
+  }
+  window.shapeCheck = { PRIMS, COMPOSITES, setCap, checkShape: () => checkShape(analyse()) };   // for tests and the console
+
   // ---------- update cycle ----------
   function redraw() {
     rulerA = rulerB = null;
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);
+    renderCheck(an);
     const rd = $('#rotDeg');
     if (document.activeElement !== rd) rd.value = Math.round((st.rot || 0) * 10) / 10;
     svg.classList.toggle('rotatable', !rulerOn && st.legs.some(l => l != null && l > 0));
@@ -1216,6 +1427,7 @@
   $('#copyCode').addEventListener('click', e => copy(e.target, toCode()));
   $('#copyJson').addEventListener('click', e => copy(e.target, toJSON()));
   $('#copyLink').addEventListener('click', e => copy(e.target, location.href.split('#')[0] + toHash()));
+  $('#capBlank').addEventListener('click', e => copy(e.target, blankCap()));
 
   new ResizeObserver(() => onChange()).observe(svg);
   window.addEventListener('hashchange', () => { if (loadHash()) { syncHeader(); rebuild(); } });

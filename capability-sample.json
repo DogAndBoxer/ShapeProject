@@ -1,0 +1,256 @@
+{
+ "_note": "SAMPLE DATA. Every number here is invented to exercise the check. Replace with measured minimums.",
+ "machines": [
+  {
+   "name": "Sample bender A",
+   "sets": [
+    {
+     "wire": 12,
+     "actual": 13.8,
+     "pin": 48,
+     "profile": "round",
+     "results": {
+      "lead-45": {
+       "pass": 75,
+       "fail": 70
+      },
+      "tail-45": {
+       "pass": 50,
+       "fail": 45
+      },
+      "lead-90": {
+       "pass": 95,
+       "fail": 90
+      },
+      "tail-90": {
+       "pass": 70,
+       "fail": 65
+      },
+      "lead-135": {
+       "pass": 90,
+       "fail": 85
+      },
+      "tail-135": {
+       "pass": 65,
+       "fail": 60
+      },
+      "lead-180": {
+       "pass": 105,
+       "fail": 100
+      },
+      "tail-180": {
+       "pass": 80,
+       "fail": 75
+      },
+      "int-s-45-45": {
+       "pass": 110,
+       "fail": 105
+      },
+      "int-s-45-90": {
+       "pass": 130,
+       "fail": 125
+      },
+      "int-s-45-135": {
+       "pass": 125,
+       "fail": 120
+      },
+      "int-s-45-180": {
+       "pass": 140,
+       "fail": 135
+      },
+      "int-s-90-45": {
+       "pass": 135,
+       "fail": 130
+      },
+      "int-s-90-90": {
+       "pass": 150,
+       "fail": 145
+      },
+      "int-s-90-135": {
+       "pass": 145,
+       "fail": 140
+      },
+      "int-s-90-180": {
+       "pass": 160,
+       "fail": 155
+      },
+      "int-s-135-45": {
+       "pass": 130,
+       "fail": 125
+      },
+      "int-s-135-90": {
+       "pass": 150,
+       "fail": 145
+      },
+      "int-s-135-135": {
+       "pass": 140,
+       "fail": 135
+      },
+      "int-s-135-180": {
+       "pass": 155,
+       "fail": 150
+      },
+      "int-s-180-45": {
+       "pass": 145,
+       "fail": 140
+      },
+      "int-s-180-90": {
+       "pass": 165,
+       "fail": 160
+      },
+      "int-s-180-135": {
+       "pass": 160,
+       "fail": 155
+      },
+      "int-s-180-180": {
+       "pass": 170,
+       "fail": 165
+      },
+      "int-o-45-45": {
+       "pass": 125,
+       "fail": 120
+      },
+      "int-o-45-90": {
+       "pass": 145,
+       "fail": 140
+      },
+      "int-o-45-135": {
+       "pass": 140,
+       "fail": 135
+      },
+      "int-o-45-180": {
+       "pass": 155,
+       "fail": 150
+      },
+      "int-o-90-45": {
+       "pass": 150,
+       "fail": 145
+      },
+      "int-o-90-90": {
+       "pass": 165,
+       "fail": 160
+      },
+      "int-o-90-135": {
+       "pass": 160,
+       "fail": 155
+      },
+      "int-o-90-180": {
+       "pass": 175,
+       "fail": 170
+      },
+      "int-o-135-45": {
+       "pass": 145,
+       "fail": 140
+      },
+      "int-o-135-90": {
+       "pass": 165,
+       "fail": 160
+      },
+      "int-o-135-135": {
+       "pass": 155,
+       "fail": 150
+      },
+      "int-o-135-180": {
+       "pass": 170,
+       "fail": 165
+      },
+      "int-o-180-45": {
+       "pass": 160,
+       "fail": 155
+      },
+      "int-o-180-90": {
+       "pass": 180,
+       "fail": 175
+      },
+      "int-o-180-135": {
+       "pass": 175,
+       "fail": 170
+      },
+      "int-o-180-180": {
+       "pass": 185,
+       "fail": 180
+      }
+     },
+     "composites": {
+      "tie-sq-135": {
+       "pass": 160,
+       "fail": 150
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sample bender B",
+   "sets": [
+    {
+     "wire": 12,
+     "actual": 13.8,
+     "pin": 48,
+     "profile": "hoe-like",
+     "results": {
+      "lead-45": {
+       "pass": 80,
+       "fail": 75
+      },
+      "tail-45": {
+       "pass": 55,
+       "fail": 50
+      },
+      "lead-90": {
+       "pass": 100,
+       "fail": 95
+      },
+      "tail-90": {
+       "pass": 75,
+       "fail": 70
+      },
+      "lead-135": {
+       "pass": 95,
+       "fail": 90
+      },
+      "tail-135": {
+       "pass": 70,
+       "fail": 65
+      },
+      "lead-180": {
+       "pass": 110,
+       "fail": 105
+      },
+      "tail-180": {
+       "pass": 85,
+       "fail": 80
+      },
+      "int-s-90-45": {
+       "pass": 145,
+       "fail": 140
+      },
+      "int-s-90-90": {
+       "pass": 140,
+       "fail": null
+      },
+      "int-s-90-135": {
+       "pass": 155,
+       "fail": 150
+      },
+      "int-s-90-180": {
+       "pass": 170,
+       "fail": 165
+      },
+      "int-o-90-90": {
+       "pass": 175,
+       "fail": 170
+      }
+     }
+    },
+    {
+     "wire": 12,
+     "actual": 13.8,
+     "pin": 64,
+     "profile": "round",
+     "results": {}
+    }
+   ]
+  }
+ ]
+}
