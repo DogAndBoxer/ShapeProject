@@ -4,7 +4,7 @@ Tools for working out which reinforcing shapes the factory's machines can make.
 
 ## Phase 1: Shape Builder
 
-`shape-builder.html` is a single-file web app. Open it in a browser; nothing to install.
+`shape-builder.html`, with `shared.js` beside it. Open it in a browser; nothing to install.
 It takes a shape the way a bending machine's screen does (length, angle, length, angle, ..., length, cut)
 and draws the bar to scale as it is entered.
 
@@ -108,7 +108,99 @@ l220,w90,r5000,l5000,w0,l1000     90 cog, arc R5000 of length 5000, tangent join
 The earlier space-separated form (`250 135d 1000 90u 500 C`) still loads.
 The URL hash carries the code, bar and pin diameter, the view and any rotation, so a link reproduces the shape exactly.
 
+## Phase 2: Shape audit
+
+Open `index.html`. It is the audit home; the Shape Builder is one of its sections. Three files, no build step:
+`index.html`, `shape-builder.html` and `shared.js`.
+
+The aim is a database of what each machine on the floor can make, built by operators at the machines, and
+from it a check that says whether a hypothetical shape can be made on at least one machine.
+
+### The idea
+
+A minimum belongs to a segment and depends only on the bend at each end of it, the order those two bends are
+made in, the bar and the pin. So every shape breaks down into a fixed set of **primitives**:
+
+| Primitive | Meaning | Count |
+|---|---|---|
+| `lead-A` | free end, then the first bend made | 4 |
+| `tail-A` | the last bend made, then the cut (the machine can draw the wire back, so this differs from the lead) | 4 |
+| `int-s-A-B` | segment between bend A (made first) and bend B (made second), turning the same way | 16 |
+| `int-o-A-B` | the same, turning opposite ways | 16 |
+
+A and B are 45, 90, 135 or 180. A pin is its diameter and its profile (round, hoe-like, shark fin); a 64 round
+and a 64 hoe-like are separate pins. One pin per piece. Minimums are the same up or down.
+
+### Audit pieces
+
+The operator is not given lengths. Each piece is a shape with its angles fixed; the operator makes it as short
+as the machine will go and enters what was achieved. One piece therefore gives a minimum for every segment in
+it, so the 40 primitives are covered by 36 pieces per bar and pin:
+
+- `p1-A`: one bend. Gives `lead-A` and `tail-A`.
+- `p2-s-A-B`, `p2-o-A-B`: two bends, A made first. Gives `lead-A`, the segment between, and `tail-B`.
+
+Plus **composites**, whole shapes whose limit is not between two bends (on a tight closed tie it is the bent
+bar coming back round behind the pin): `tie-sq-135` is built in, more go in `BUILTIN` in `shared.js`. And
+**added shapes**: draw anything in the Shape Builder and use **Add to audit**. Shapes with an arc are only
+queued on machines that make radius shapes.
+
+Getting one segment to its minimum can stop another reaching its own. **Save and add a version** records
+another combination of the same piece. A primitive's minimum is the shortest that segment reached in any
+version.
+
+### Sections
+
+- **Home**: overall and per-machine progress, operator name, and Start or Continue audit for each machine.
+- **Perform the audit** (`shape-builder.html?audit=<machine>`): the builder with angles, directions and
+  structure locked. Segments not yet entered are drawn at a nominal length and labelled `?`. Enter moves
+  through the lengths and saves on the last one. Skip for now sends the piece to the back of the queue;
+  Can't make records that the machine cannot do it, with a reason. The queue runs bar diameter outermost,
+  then pin, then piece, to keep changeovers down. Added shapes can be marked as bent from the end.
+- **Machines**: name, bar or coil, diameters, pins (diameter and profile), which bar runs on which pin,
+  whether it makes radius shapes, whether it can reverse bend (recorded, not used yet).
+- **Shapes**: the built-in pieces and the added ones.
+- **Review data**: every saved piece. Void takes a record out of the minimums and puts its piece back in the
+  queue.
+- **Findings**: minimums by machine for a bar and pin, pieces with more than one version and the spread
+  between them, and the Can't make list.
+- **Settings**: database connection, export and import.
+
+### Machine check (in the Shape Builder)
+
+Under the stats. For each machine with audit data for the shape's bar and pin diameter, the shape is checked
+in both feed orders (bent from the start of bar, bent from the end), since the order decides which end is the
+lead, which is the tail, and which bend of each pair comes first. Each segment is **Pass** at or above the
+audited minimum, **Under minimum** below it, and **Unknown** where nothing has been audited.
+
+Minimums are held as straights (tangent to tangent), worked out with the audited piece's own bar and pin,
+then shown as segment lengths for the shape. Angles between the four are interpolated on the straight and
+marked as interpolated. Bends under 45°, arc segments and shapes with per-bend pins come out Unknown.
+
+Limits to keep in mind:
+
+- The check is per segment. Where a minimum comes from a piece with more than one version it is flagged as a
+  trade-off: it may not hold with the neighbouring segments at their own minimums.
+- Collisions with the machine or with the bar itself are not checked, and composites are recorded but not
+  used by the check.
+
+### Storage
+
+Everything is saved in the browser first, so the audit works with no connection. With a Supabase project
+URL and anon key entered under Settings, each change is pushed and everything is pulled, newest copy of each
+record winning. Run `supabase/schema.sql` in the project once; it creates three tables (`shape_machines`,
+`shape_shapes`, `shape_audits`) and two flat views for export (`shape_audit_records`, `shape_machine_list`).
+The anon key has read, insert and update on those tables with no login. Nothing is hard-deleted.
+
+Browser storage belongs to the address the app is opened from, so serve the three files from one place
+(any static host) rather than opening them from different folders.
+
 ### Parked for later
+
+- Rules export for scheduling and detailing, and a rule for trade-offs between neighbouring segments once the
+  audit shows how large they are.
+- What reverse bend and bar versus coil change in the audit.
+- Machine face and pin outlines as collision shapes, for maximums and closed-shape clearance.
 
 - Non-planar shapes (a rotation angle per bend). The standard lists 3D input as a future item.
 - Machine capability rules per model and gauge, captured by clicking segments and bends on a shape,

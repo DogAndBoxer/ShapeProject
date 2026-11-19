@@ -185,11 +185,44 @@
   svg text.rtext { font-size: 14px; font-weight: 700; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
   svg text.rsub { font-size: 11px; fill: var(--dim); paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round; }
   svg text.arctext { font-size: 12px; fill: var(--arc); font-weight: 600; }
+  #check { border-top: 1px solid var(--line); padding: 10px 14px; font-size: 13px; }
+  #check .chead { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+  #check .chead .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  #check .chead .spacer { flex: 1; }
+  #check .muted { color: var(--muted); }
+  #check .verdict { font-size: 15px; font-weight: 650; margin-bottom: 6px; }
+  #check .ok { color: var(--arc); } #check .bad { color: var(--red); } #check .unk { color: var(--amber); }
+  #check table { border-collapse: collapse; width: 100%; }
+  #check td, #check th { text-align: left; vertical-align: top; padding: 4px 14px 4px 0; border-top: 1px solid #eef0f3; }
+  #check th { color: var(--muted); font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; border-top: 0; }
+  #check .st { font-weight: 650; }
+  #check .why { color: var(--ink); font-size: 12px; }
+  header a.home { color: var(--accent); text-decoration: none; font-size: 13px; }
+  #auditBar { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 18px; }
+  #auditBar .arow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+  #auditBar a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  #auditBar .amachine { font-size: 17px; font-weight: 650; }
+  #auditBar .acombo { font-size: 15px; font-weight: 600; }
+  #auditBar .aprog { color: var(--muted); margin-left: auto; }
+  #auditBar .ashape { font-size: 20px; font-weight: 650; margin: 8px 0 2px; }
+  #auditBar .ainstr { color: var(--ink); max-width: 900px; }
+  #auditBar .aversions { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  #auditBar .abtns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  #auditBar .abtns button { font-size: 15px; padding: 7px 14px; }
+  #auditBar .abtns label { color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+  #auditBar .abtns select { font: inherit; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+  #auditBar .amsg { color: var(--red); font-weight: 600; min-height: 18px; margin-top: 6px; }
+  #auditBar .amsg.ok { color: var(--arc); }
+  #auditBar [hidden] { display: none !important; }
+  body.audit header .spacer ~ *, body.audit #entry .tools, body.audit footer, body.audit #check, body.audit #stats, body.audit header a.home, body.audit #entry .hint { display: none; }
+  body.audit #view svg { height: max(380px, calc(100vh - 330px)); }
+  input:disabled, button:disabled { opacity: .55; cursor: default; }
 </style>
 </head>
 <body>
 
 <header>
+  <a class="home" href="index.html">← Audit home</a>
   <h1>Shape Builder</h1>
   <label>Bar Ø <input id="gauge" type="number" list="gauges" min="3" step="0.5"> mm</label>
   <datalist id="gauges">
@@ -203,8 +236,26 @@
     <button id="pinReset" class="link" title="Reset pin to the default for this bar size">auto</button>
   </label>
   <div class="spacer"></div>
+  <button id="addAudit" title="Add this shape to the audit list, so every machine is asked for its shortest version of it">＋ Add to audit</button>
   <button id="newShape">New shape</button>
 </header>
+
+<div id="auditBar" hidden>
+  <div class="arow"><a href="index.html">← Audit home</a><span class="amachine" id="aMachine"></span><span class="acombo" id="aCombo"></span><span class="aprog" id="aProg"></span></div>
+  <div id="aWork">
+    <div class="ashape" id="aShape"></div>
+    <div class="ainstr" id="aInstr"></div>
+    <div class="aversions" id="aVersions"></div>
+    <div class="abtns">
+      <label id="aRevWrap" hidden>Bent from <select id="aRev"><option value="0">the start (bend 1 first)</option><option value="1">the end (last bend first)</option></select></label>
+      <button id="aNext" class="on" title="Save these lengths and go to the next piece (Enter in the last length)">Save and next ⏎</button>
+      <button id="aVersion" title="Save these lengths and enter another combination of the same piece, for when shortening one segment forces another longer">Save and add a version</button>
+      <button id="aSkip" title="Leave this piece for later; it goes to the back of the queue">Skip for now</button>
+      <button id="aCannot" title="This machine cannot make this piece at all with this bar and pin">Can't make</button>
+    </div>
+  </div>
+  <div class="amsg" id="aMsg"></div>
+</div>
 
 <main>
   <section id="entry">
@@ -245,6 +296,13 @@
       <g id="g"></g>
     </svg>
     <div id="stats"></div>
+    <div id="check">
+      <div class="chead">
+        <span class="k">Machine check</span> <span id="capSrc" class="muted"></span>
+        <span class="spacer"></span>
+      </div>
+      <div id="checkBody"></div>
+    </div>
   </section>
 </main>
 
@@ -255,13 +313,16 @@
   <button id="copyCode">Copy code</button>
   <button id="copyJson">Copy JSON</button>
   <button id="copyLink">Copy link</button>
-  <div class="note"><span class="build">Shape Builder · build 2026-10-29 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
+  <div class="note"><span class="build">Shape Builder · build 2026-11-19 · test copy for the scheduling team</span><br>NSS format per the Shape Definition Standard: <b>l</b> segment length, <b>w</b> bend angle (clockwise positive, anticlockwise negative), <b>r</b> radius before an arc segment. Example: <code>l250,w-135,l1000,w90,l500</code>. Up on the machine is clockwise here. Bar and pin travel in the link, not the code.</div>
 </footer>
 
+<script src="shared.js"></script>
 <script>
 (() => {
   'use strict';
   const $ = s => document.querySelector(s);
+  const auditId = new URLSearchParams(location.search).get('audit');   // machine id: the page becomes audit entry
+  const auditOn = !!auditId;
   const PIN_RATIO = 4;           // default pin diameter as a multiple of nominal bar diameter
   const RIB_FACTOR = 1.15;       // deformed bar over the ribs: nominal × 1.15 (rib height 7.5% of nominal each side)
   const actualOf = g => Math.round(g * RIB_FACTOR * 10) / 10;
@@ -320,15 +381,15 @@
     const legs = st.legs.map((L0, i) => {
       const min = (i > 0 ? setbacks[i - 1] : 0) + (i < st.bends.length ? setbacks[i] : 0);
       const a = st.arcs[i];
-      let L = L0, sol = null, r = null;
+      let L = L0, sol = null, r = null, ghost = false;
       if (a) {
         sol = solveArc(a, L0, d);
         if (sol && !sol.bad) r = (a.d >= 0 ? 1 : -1) * sol.Rcl;
         else L = null;
-      }
+      } else if (L == null && auditOn) { L = min + Math.max(80, 8 * d); ghost = true; }   // audit entry: draw a segment not yet entered at a nominal length
       const empty = L == null;
       const S = (empty ? 0 : L) - min;
-      return { L, min, S, empty, short: !empty && S < 0, arc: !!a, r, sol: sol && !sol.bad ? sol : null, badArc: !!(sol && sol.bad), Ro: sol && !sol.bad ? sol.Ro : null };
+      return { L, min, S, empty, ghost, short: !empty && S < 0, arc: !!a, r, sol: sol && !sol.bad ? sol : null, badArc: !!(sol && sol.bad), Ro: sol && !sol.bad ? sol.Ro : null };
     });
     const arcLen = st.bends.reduce((s, b, i) => s + bendR[i].R * rad(clampAngle(b.a)), 0);
     const developed = legs.reduce((s, l) => s + Math.max(0, l.S), 0) + arcLen;
@@ -663,8 +724,8 @@
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
     g.innerHTML = '';
     lastClamped = new Set();
-    const hasShape = st.legs.some(l => l != null && l > 0);
-    $('#empty').hidden = hasShape;
+    const hasShape = st.legs.some(l => l != null && l > 0) || (auditOn && st.legs.length > 1);
+    $('#empty').hidden = hasShape || auditOn;
     if (!hasShape) return { w: 0, h: 0 };
 
     const pad = 100, availW = Math.max(50, W - 2 * pad), availH = Math.max(50, H - 2 * pad);
@@ -782,7 +843,7 @@
         if (leg.empty) return;
         const p0 = S(pc.p0), p1 = S(pc.p1), d = SV(pc.dir);
         const m = [(p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2];
-        const text = fmt(leg.L);
+        const text = leg.ghost ? '?' : fmt(leg.L);
         // side: away from the centre of the neighbouring bend(s); if they disagree, away from the shape centre
         let n = [-d[1], d[0]], vote = 0;
         for (const nb of [path.pieces[k - 1], path.pieces[k + 1]]) {
@@ -870,6 +931,7 @@
       }
     });
 
+    if (an.legs.some(l => l.ghost)) return trueBox;   // no overall dimensions until every segment is entered
     // overall dimensions (true values, drawn envelope)
     const x0 = ox + box.minX, x1 = ox + box.maxX, y0 = oy - box.maxY, y1 = oy - box.minY;
     const dy = y1 + 40, dx = x1 + 56;
@@ -914,14 +976,15 @@
   function renderTable() {
     let h = `<colgroup><col style="width:30px"><col style="width:104px"><col style="width:30px"><col style="width:84px"><col style="width:18px"><col style="width:44px"><col></colgroup>
       <thead><tr><td></td><td>Segment</td><td></td><td class="bend">Bend</td><td></td><td></td><td></td></tr></thead><tbody>`;
+    const lock = auditOn ? ' disabled tabindex="-1"' : '';   // audit entry: angles, directions and structure are fixed
     st.legs.forEach((L, i) => {
       const last = i === st.legs.length - 1;
       let bendCells;
       if (!last) {
         const b = st.bends[i];
-        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="0" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"><div class="info pinline" title="Pin for this bend. Blank uses the header pin.">pin Ø<input type="number" inputmode="decimal" min="1" step="1" data-kind="pin" data-i="${i}" value="${b.pin || ''}" placeholder="${st.pin}"></div></td>
+        bendCells = `<td class="bend"><input type="number" inputmode="decimal" min="0" max="180" step="1" data-kind="ang" data-i="${i}" value="${b.a}"${lock}>${auditOn ? '' : `<div class="info pinline" title="Pin for this bend. Blank uses the header pin.">pin Ø<input type="number" inputmode="decimal" min="1" step="1" data-kind="pin" data-i="${i}" value="${b.pin || ''}" placeholder="${st.pin}"></div>`}</td>
           <td class="unit">°</td>
-          <td class="dircell"><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction: ${b.d > 0 ? 'up' : 'down'}">${b.d > 0 ? '▲' : '▼'}</button></td>`;
+          <td class="dircell"><button class="dir ${b.d > 0 ? 'up' : 'down'}" data-act="dir" data-i="${i}" title="Bend direction: ${b.d > 0 ? 'up' : 'down'}"${lock}>${b.d > 0 ? '▲' : '▼'}</button></td>`;
       } else if (st.cut) {
         bendCells = `<td class="bend cutcell" colspan="3">✂ Cut</td>`;
       } else {
@@ -933,12 +996,12 @@
         <td><input type="number" inputmode="decimal" min="0" step="1" data-kind="len" data-i="${i}" value="${L ?? ''}" placeholder="${a ? 'cut length' : 'length'}"><div class="info" data-info="${i}"></div></td>
         <td class="unit">mm</td>
         ${bendCells}
-        <td class="act"><button class="arcbtn${a ? ' on' : ''}" title="${a ? 'Make this a straight segment' : 'Make this an arc segment'}" data-act="arc" data-i="${i}">⌒</button><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button></td>
+        <td class="act">${auditOn ? '' : `<button class="arcbtn${a ? ' on' : ''}" title="${a ? 'Make this a straight segment' : 'Make this an arc segment'}" data-act="arc" data-i="${i}">⌒</button><button title="Insert a segment after this one" data-act="insert" data-i="${i}">+</button><button title="${last && st.cut ? 'Remove the cut' : 'Delete this segment and its bend'}" data-act="${last && st.cut ? 'uncut' : 'delRow'}" data-i="${i}">×</button>`}</td>
       </tr>`;
       if (a) {
         h += `<tr class="arcrow" data-i="${i}"><td></td><td colspan="6"><div class="arcfields">
           <label>Outside radius <input type="number" inputmode="decimal" min="1" step="1" data-kind="Ro" data-i="${i}" value="${a.Ro == null ? '' : fmt(a.Ro)}"><span>mm</span></label>
-          <button class="dir ${a.d > 0 ? 'up' : 'down'}" data-act="adir" data-i="${i}" title="Arc curves: ${a.d > 0 ? 'up' : 'down'}">${a.d > 0 ? '▲' : '▼'}</button>
+          <button class="dir ${a.d > 0 ? 'up' : 'down'}" data-act="adir" data-i="${i}" title="Arc curves: ${a.d > 0 ? 'up' : 'down'}"${lock}>${a.d > 0 ? '▲' : '▼'}</button>
           <span class="arccalc" data-arccalc="${i}"></span>
         </div></td></tr>`;
       }
@@ -953,6 +1016,7 @@
       const td = document.querySelector(`[data-info="${i}"]`);
       if (!td) return;
       td.className = 'info';
+      if (l.ghost) { td.textContent = 'not entered'; return; }
       const bits = [];
       if (l.arc) {
         const sp = document.querySelector(`[data-arccalc="${i}"]`);
@@ -1068,12 +1132,181 @@
     return true;
   }
 
+  // ---------- machine check, from the audit records ----------
+  // shared.js turns every audited piece into minimums for the primitives (lead-A, tail-A, int-s-A-B,
+  // int-o-A-B, as straights). A segment passes at or above the shortest made, is under minimum below it,
+  // and is unknown where nothing has been audited. Angles between 45, 90, 135 and 180 are interpolated.
+  const esc = SA.esc;
+  function lookup(group, kind, a, b) {
+    const internal = kind === 'int-s' || kind === 'int-o';
+    const wa = SA.gridWeights(a), wb = internal ? SA.gridWeights(b) : [[null, 1]];
+    if (!wa || !wb) return { none: 'bend under 45° has no primitive' };
+    const ids = [];
+    let sum = 0, has = true, trade = false;
+    for (const [ga, w1] of wa) for (const [gb, w2] of wb) {
+      const id = internal ? `${kind}-${ga}-${gb}` : `${kind}-${ga}`, r = group.prim[id];
+      ids.push(id);
+      if (r) { sum += w1 * w2 * r.straight; trade = trade || r.tradeoff; } else has = false;
+    }
+    return { min: has ? sum : null, interp: ids.length > 1, ids, trade };
+  }
+  // One feed order on one machine, wire and pin. rev = false: bent from the start of bar, so Segment 1 is the lead end.
+  function checkOrder(an, group, rev) {
+    const n = st.legs.length, legs = [];
+    for (let i = 0; i < n; i++) {
+      const leg = an.legs[i], bL = i > 0 ? st.bends[i - 1] : null, bR = i < n - 1 ? st.bends[i] : null;
+      const out = { i, status: 'unk', text: '' };
+      legs.push(out);
+      if (leg.empty) { out.text = 'no length'; continue; }
+      if (leg.arc) { out.text = 'arc segment, not covered'; continue; }
+      if (leg.short) { out.status = 'bad'; out.text = `${fmt(leg.L)} is under the geometric minimum ${fmt(leg.min)}`; continue; }
+      let lk;
+      if (bL && bR) {
+        const first = rev ? bR : bL, second = rev ? bL : bR;
+        lk = lookup(group, (first.d > 0) === (second.d > 0) ? 'int-s' : 'int-o', clampAngle(first.a), clampAngle(second.a));
+      } else {
+        const lead = rev ? i === n - 1 : i === 0;
+        lk = lookup(group, lead ? 'lead' : 'tail', clampAngle((bL || bR).a));
+      }
+      if (lk.none) { out.text = lk.none; continue; }
+      if (lk.min == null) { out.text = `not audited (${lk.ids.join(', ')})`; continue; }
+      const minLeg = lk.min + leg.min, tag = lk.interp ? ', interpolated' : '';
+      out.trade = lk.trade;
+      if (leg.L >= minLeg - 0.5) { out.status = 'ok'; out.text = `min ${fmt(minLeg)}${tag}`; }
+      else { out.status = 'bad'; out.text = `${fmt(leg.L)} is under the audited minimum ${fmt(minLeg)}${tag}`; }
+    }
+    const status = legs.some(l => l.status === 'bad') ? 'bad' : legs.every(l => l.status === 'ok') ? 'ok' : 'unk';
+    return { status, legs };
+  }
+  const RANK = { ok: 2, unk: 1, bad: 0 };
+  function checkShape(an) {
+    const out = { rows: [], others: [], note: '' };
+    if (st.legs.length < 2 || !st.bends.some(b => clampAngle(b.a) > 0)) { out.note = 'No bends to check.'; return out; }
+    if (st.bends.some(b => b.pin && b.pin !== st.pin)) { out.note = 'This shape has its own pin on some bends. Minimums are audited with one pin per piece, so it is not checked.'; return out; }
+    for (const g of SA.minimums()) {
+      if (g.wire !== st.gauge) continue;
+      if (g.pin !== st.pin) { out.others.push(`Ø${g.pin} ${g.profile} on ${g.machine}`); continue; }
+      const fwd = checkOrder(an, g, false), rev = checkOrder(an, g, true);
+      out.rows.push({ machine: g.machine, set: g, fwd, rev, best: RANK[fwd.status] >= RANK[rev.status] ? fwd.status : rev.status });
+    }
+    out.rows.sort((a, b) => RANK[b.best] - RANK[a.best]);
+    return out;
+  }
+  const STATUS = { ok: 'Pass', bad: 'Under minimum', unk: 'Unknown' };
+  function renderCheck(an) {
+    if (auditOn) return;
+    const body = $('#checkBody'), sy = SA.syncState();
+    $('#capSrc').textContent = sy.text;
+    const res = checkShape(an);
+    if (res.note) { body.innerHTML = `<div class="muted">${esc(res.note)}</div>`; return; }
+    let h = '';
+    if (!res.rows.length) {
+      h += `<div class="verdict unk">No audit data for N${st.gauge} on a Ø${st.pin} pin.</div>`;
+      if (res.others.length) h += `<div class="muted">N${st.gauge} has data on: ${esc(res.others.join('; '))}.</div>`;
+      body.innerHTML = h; return;
+    }
+    const good = res.rows.filter(r => r.best === 'ok'), maybe = res.rows.filter(r => r.best === 'unk');
+    const where = r => `${esc(r.machine)} (${esc(r.set.profile)} pin, bent from the ${r.fwd.status === 'ok' ? (r.rev.status === 'ok' ? 'start or the end' : 'start') : 'end'})`;
+    if (good.length) h += `<div class="verdict ok">Every segment is at or above the audited minimum on ${good.map(where).join(', ')}.</div>`;
+    else if (maybe.length) h += `<div class="verdict unk">Undetermined: not ruled out on ${maybe.map(r => esc(r.machine)).join(', ')}, but some segments have not been audited there.</div>`;
+    else h += '<div class="verdict bad">Under the audited minimums on every machine with data for this bar and pin.</div>';
+    const cell = o => {
+      const trade = o.legs.filter(l => l.status === 'ok' && l.trade).map(l => l.i + 1);
+      return `<span class="st ${o.status}">${STATUS[o.status]}</span>` + o.legs.filter(l => l.status !== 'ok').map(l => `<div class="why">Segment ${l.i + 1}: ${esc(l.text)}</div>`).join('')
+        + (trade.length ? `<div class="why unk">Trade-off recorded on segment${trade.length > 1 ? 's' : ''} ${trade.join(', ')}: that minimum may not hold with its neighbours at theirs.</div>` : '');
+    };
+    h += `<table><tr><th>Machine</th><th>Pin</th><th>Bent from the start</th><th>Bent from the end</th></tr>${res.rows.map(r =>
+      `<tr><td>${esc(r.machine)}</td><td>Ø${r.set.pin} ${esc(r.set.profile)}</td><td>${cell(r.fwd)}</td><td>${cell(r.rev)}</td></tr>`).join('')}</table>`;
+    h += '<div class="muted" style="margin-top:6px">Checks segment minimums only. Collisions with the machine or with the bar itself are not checked.</div>';
+    if (res.others.length) h += `<div class="muted">Other pins with N${st.gauge} data: ${esc(res.others.join('; '))}.</div>`;
+    body.innerHTML = h;
+  }
+
+  // ---------- audit entry ----------
+  // shape-builder.html?audit=<machine id>. Works through the machine's queue: the piece is shown with its
+  // angles fixed and its lengths blank, the operator enters the shortest lengths achieved, and each save is one
+  // version of that piece.
+  let audit = null;
+  const aMsg = (text, ok) => { const e = $('#aMsg'); e.textContent = text || ''; e.classList.toggle('ok', !!ok); };
+  function auditVersions() {
+    const it = audit.item, recs = SA.rows('audits').filter(r => !r.voided && r.status === 'done' && r.machine_id === audit.machine.id && r.shape_id === it.shape.id && SA.comboKey(r) === SA.comboKey(it.combo));
+    $('#aVersions').textContent = recs.length ? `Saved for this piece: ${recs.map((r, k) => `version ${k + 1}: ${r.legs.map(v => v == null ? '–' : fmt(v)).join(' / ')}`).join('   ·   ')}` : '';
+    return recs.length;
+  }
+  function auditBlank() {
+    Object.assign(st, parseCode(audit.item.shape.code));
+    st.legs = st.legs.map((L, i) => st.arcs[i] ? L : null);   // straights are for the operator; an arc keeps its reference length and radius
+    st.cut = true; st.pins = []; st.view = 'standard'; st.rot = 0;
+    rebuild({ kind: 'len', i: st.arcs[0] ? 0 : st.legs.findIndex((L, i) => !st.arcs[i]), select: true });
+  }
+  function auditLoad(keepMsg) {
+    const m = SA.get('machines', auditId);
+    $('#auditBar').hidden = false;
+    if (!keepMsg) aMsg('');
+    if (!m) { $('#aWork').hidden = true; $('#aMachine').textContent = 'Machine not found'; aMsg('This machine is not in the audit data on this laptop. Go back to Audit home.'); return; }
+    const items = SA.queue(m), item = SA.nextItem(items), done = items.filter(i => i.state === 'done').length;
+    audit = { machine: m, item };
+    $('#aMachine').textContent = m.name;
+    $('#aProg').textContent = `${done} of ${items.length} done` + (items.some(i => i.state === 'skipped') ? ` · ${items.filter(i => i.state === 'skipped').length} skipped` : '') + (SA.cfg.operator ? ` · ${SA.cfg.operator}` : '');
+    if (!item) {
+      $('#aWork').hidden = true; $('#aCombo').textContent = '';
+      st.legs = [null]; st.arcs = [null]; st.bends = []; rebuild();
+      aMsg(items.length ? 'Audit complete for this machine.' : 'Nothing to audit: this machine has no bar and pin combinations set up.', items.length > 0);
+      return;
+    }
+    $('#aWork').hidden = false;
+    st.gauge = item.combo.wire; st.pin = item.combo.pin; st.pinAuto = false; st.actual = actualOf(st.gauge); st.actualAuto = true;
+    syncHeader();
+    const custom = !SA.BUILTIN.some(b => b.id === item.shape.id);
+    $('#aCombo').textContent = `${m.feed === 'coil' ? 'Wire' : 'Bar'} ${item.combo.wire} mm · pin Ø${item.combo.pin} ${item.combo.profile}`;
+    $('#aShape').textContent = item.shape.name + (item.state === 'skipped' ? ' (skipped earlier)' : '');
+    $('#aRevWrap').hidden = !custom; $('#aRev').value = '0';
+    $('#aInstr').textContent = `Make this shape with every segment as short as the machine will go${custom ? '' : ', making bend 1 first'}. Enter the lengths you achieved. If getting one segment shorter forces another longer, save it and add another version.`;
+    auditBlank();
+    auditVersions();
+  }
+  function auditSave(status, note) {
+    const it = audit.item, done = status === 'done';
+    if (done) {
+      if (st.legs.some(L => L == null)) { aMsg('Enter a length for every segment first.'); focusInput('len', st.legs.findIndex(L => L == null), true); return false; }
+      const an = analyse(), bad = an.legs.findIndex(l => l.short || l.badArc || (l.arc && !l.sol));
+      if (bad >= 0) { aMsg(`Segment ${bad + 1} cannot be right: it is shorter than the bends at its ends allow for this bar and pin.`); focusInput('len', bad, true); return false; }
+    }
+    SA.put('audits', {
+      machine_id: audit.machine.id, wire: it.combo.wire, actual: st.actual, pin: it.combo.pin, profile: it.combo.profile,
+      shape_id: it.shape.id, shape_name: it.shape.name, code: done ? toCode() : it.shape.code, legs: done ? st.legs.slice() : [],
+      rev: done && $('#aRev').value === '1', status, note: note || '', operator: SA.cfg.operator || '', at: new Date().toISOString(), voided: false,
+    });
+    return true;
+  }
+  $('#aNext').addEventListener('click', () => { if (auditSave('done')) { auditLoad(); aMsg('Saved.', true); } });
+  $('#aVersion').addEventListener('click', () => { if (auditSave('done')) { auditBlank(); const n = auditVersions(); aMsg(`Saved version ${n}. Enter the next combination, or skip to move on.`, true); } });
+  $('#aSkip').addEventListener('click', () => {
+    if (auditVersions() > 0) return auditLoad();   // already has a version: nothing owed, just move on
+    auditSave('skip'); auditLoad();
+  });
+  $('#aCannot').addEventListener('click', () => {
+    const why = prompt('Why can this machine not make this piece? (optional)');
+    if (why === null) return;
+    auditSave('cannot', why); auditLoad();
+  });
+  $('#addAudit').addEventListener('click', () => {
+    const an = analyse();
+    if (st.legs.length < 2 || an.legs.some(l => l.empty)) { alert('Finish the shape first: it needs at least one bend and a length on every segment.'); return; }
+    const name = prompt('Name for this shape in the audit list:');
+    if (!name || !name.trim()) return;
+    SA.put('shapes', { name: name.trim(), code: toCode(), kind: 'custom', hasArc: st.arcs.some(Boolean), created: new Date().toISOString() });
+    const b = $('#addAudit'), old = b.textContent; b.textContent = 'Added'; setTimeout(() => { b.textContent = old; }, 1200);
+  });
+  SA.onChange(() => { if (!auditOn) renderCheck(analyse()); else if (!audit) auditLoad(); });   // a first sync may bring the machine in
+
   // ---------- update cycle ----------
   function redraw() {
     rulerA = rulerB = null;
     const an = analyse();
     const box = renderDrawing(an);
     renderStats(an, box);
+    renderCheck(an);
     const rd = $('#rotDeg');
     if (document.activeElement !== rd) rd.value = Math.round((st.rot || 0) * 10) / 10;
     svg.classList.toggle('rotatable', !rulerOn && st.legs.some(l => l != null && l > 0));
@@ -1105,6 +1338,7 @@
     else if (k === 'pin') { const v = num(inp.value); st.bends[i].pin = v && v > 0 ? v : null; }
     else if (k === 'Ro' && st.arcs[i]) st.arcs[i].Ro = num(inp.value);
     else return;
+    if (auditOn) aMsg('');
     onChange();
   });
 
@@ -1112,6 +1346,13 @@
     const inp = e.target;
     if (!(inp instanceof HTMLInputElement)) return;
     const i = +inp.dataset.i, kind = inp.dataset.kind;
+    if (auditOn) {   // Enter walks the lengths; on the last one it saves and moves on
+      if (e.key !== 'Enter' || (kind !== 'len' && kind !== 'Ro')) return;
+      e.preventDefault();
+      if (kind === 'len' && st.arcs[i]) return focusInput('Ro', i, true);
+      if (i < st.legs.length - 1) return focusInput('len', i + 1, true);
+      return $('#aNext').click();
+    }
     if (kind === 'len') {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1137,7 +1378,7 @@
 
   $('#rows').addEventListener('click', e => {
     const btn = e.target.closest('button[data-act]');
-    if (!btn) return;
+    if (!btn || auditOn) return;
     const i = +btn.dataset.i, act = btn.dataset.act;
     switch (act) {
       case 'dir': setDir(i, -st.bends[i].d); onChange(); break;
@@ -1218,11 +1459,18 @@
   $('#copyLink').addEventListener('click', e => copy(e.target, location.href.split('#')[0] + toHash()));
 
   new ResizeObserver(() => onChange()).observe(svg);
-  window.addEventListener('hashchange', () => { if (loadHash()) { syncHeader(); rebuild(); } });
+  window.addEventListener('hashchange', () => { if (!auditOn && loadHash()) { syncHeader(); rebuild(); } });
 
-  loadHash();
-  syncHeader();
-  rebuild();
+  if (auditOn) {
+    document.body.classList.add('audit');
+    for (const id of ['#gauge', '#pin', '#pinReset']) $(id).disabled = true;
+    auditLoad();
+  } else {
+    loadHash();
+    syncHeader();
+    rebuild();
+  }
+  SA.sync();
 })();
 </script>
 </body>
