@@ -42,9 +42,13 @@ window.SA = (() => {
   const KEY = 'shapeAudit.v1', CFG_KEY = 'shapeAudit.cfg';
   const TABLES = { machines: 'shape_machines', shapes: 'shape_shapes', audits: 'shape_audits' };
   const blank = () => ({ machines: [], shapes: [], audits: [] });
-  let db = blank(), cfg = { url: '', key: '', operator: '' };
+  // The project the audit syncs to. The key is the publishable one, meant to be public; access is set by the
+  // policies in supabase/schema.sql. Settings can point a laptop at a different project.
+  const DEFAULT_URL = 'https://xeiownkriopbervmgijy.supabase.co', DEFAULT_KEY = 'sb_publishable_R3vIRUPCw4Oj_wIBAfF8fA_ZTR-BzBe';
+  let db = blank(), cfg = { url: DEFAULT_URL, key: DEFAULT_KEY, operator: '' };
   try { db = Object.assign(blank(), JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) { /* storage unavailable */ }
   try { Object.assign(cfg, JSON.parse(localStorage.getItem(CFG_KEY) || '{}')); } catch (e) { /* storage unavailable */ }
+  if (!cfg.url || !cfg.key) { cfg.url = DEFAULT_URL; cfg.key = DEFAULT_KEY; }   // blank settings fall back to the built-in project
   const listeners = [];
   const notify = () => listeners.forEach(f => { try { f(); } catch (e) { console.error(e); } });
   const persist = () => { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* storage unavailable */ } };

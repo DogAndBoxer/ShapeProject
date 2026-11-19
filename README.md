@@ -186,9 +186,9 @@ Limits to keep in mind:
 
 ### Storage
 
-Everything is saved in the browser first, so the audit works with no connection. With a Supabase project
-URL and anon key entered under Settings, each change is pushed and everything is pulled, newest copy of each
-record winning. Run `supabase/schema.sql` in the project once; it creates three tables (`shape_machines`,
+Everything is saved in the browser first, so the audit works with no connection. The Supabase project URL and
+publishable key are built into `shared.js` (Settings can override them per laptop); each change is pushed and
+everything is pulled, newest copy of each record winning. Run `supabase/schema.sql` in the project once; it creates three tables (`shape_machines`,
 `shape_shapes`, `shape_audits`) and two flat views for export (`shape_audit_records`, `shape_machine_list`).
 The anon key has read, insert and update on those tables with no login. Nothing is hard-deleted.
 
