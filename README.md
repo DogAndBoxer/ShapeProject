@@ -142,8 +142,18 @@ it, so the 40 primitives are covered by 36 pieces per bar and pin:
 
 Plus **composites**, whole shapes whose limit is not between two bends (on a tight closed tie it is the bent
 bar coming back round behind the pin): `tie-sq-135` is built in, more go in `BUILTIN` in `shared.js`. And
-**added shapes**: draw anything in the Shape Builder and use **Add to audit**. Shapes with an arc are only
-queued on machines that make radius shapes.
+**added shapes**: draw anything in the Shape Builder and use **Add to audit**.
+
+### Rings and arcs
+
+- **Radius machines** make plain rings only. They have no pins and no pieces: the audit is one form with the
+  smallest ring's outside diameter for each bar diameter.
+- **Rings with hooks** at 90°, 145° and 180° (`l200,w90,r393,l3000,w90,l200`: hook, bend, a ring that laps
+  itself, the same bend, the same hook, all turning the same way) are built-in pieces for benders marked
+  **Makes rings with hooks**. The operator enters the smallest outside diameter and the hook length; both
+  hooks are the same. These are kept apart from the straight-shape primitives.
+- **Any other shape with an arc** is not audited and cannot be added: arcs with bends are evaluated case by
+  case.
 
 Getting one segment to its minimum can stop another reaching its own. **Save and add a version** records
 another combination of the same piece. A primitive's minimum is the shortest that segment reached in any
@@ -157,13 +167,14 @@ version.
   through the lengths and saves on the last one. Skip for now sends the piece to the back of the queue;
   Can't make records that the machine cannot do it, with a reason. The queue runs bar diameter outermost,
   then pin, then piece, to keep changeovers down. Added shapes can be marked as bent from the end.
-- **Machines**: name, bar or coil, diameters, pins (diameter and profile), which bar runs on which pin,
-  whether it makes radius shapes, whether it can reverse bend (recorded, not used yet).
+- **Machines**: name, type (bender or radius machine), bar or coil, diameters, and for a bender its pins
+  (diameter and profile), which bar runs on which pin, whether it makes rings with hooks, and whether it can
+  reverse bend (recorded, not used yet).
 - **Shapes**: the built-in pieces and the added ones.
 - **Review data**: every saved piece. Void takes a record out of the minimums and puts its piece back in the
   queue.
 - **Findings**: minimums by machine for a bar and pin, pieces with more than one version and the spread
-  between them, and the Can't make list.
+  between them, smallest rings, rings with hooks, and the Can't make list.
 - **Settings**: database connection, export and import.
 
 ### Machine check (in the Shape Builder)
@@ -175,7 +186,12 @@ audited minimum, **Under minimum** below it, and **Unknown** where nothing has b
 
 Minimums are held as straights (tangent to tangent), worked out with the audited piece's own bar and pin,
 then shown as segment lengths for the shape. Angles between the four are interpolated on the straight and
-marked as interpolated. Bends under 45°, arc segments and shapes with per-bend pins come out Unknown.
+marked as interpolated. Bends under 45° and shapes with per-bend pins come out Unknown.
+
+Shapes with an arc are handled separately. A single arc or ring is checked against each radius machine's
+smallest ring for that bar (a partial arc is checked against the full-ring figure, which may not hold for a
+short arc). A ring with 90°, 145° or 180° hooks is checked for diameter and hook length on the benders audited
+for it. Anything else with an arc gets no verdict.
 
 Limits to keep in mind:
 
