@@ -124,7 +124,11 @@
       <div class="card">${ms.length ? `<table><tr><th>Machine</th><th>Feed</th><th>Diameters</th><th>Pins</th><th>Radius shapes</th><th>Reverse bend</th><th>Audit</th><th></th></tr>
       ${ms.map(m => { const p = progress(m); return `<tr><td><b>${esc(m.name)}</b></td><td>${m.feed === 'coil' ? 'Coil' : 'Bar'}</td><td>${(m.wires || []).join(', ')}</td>
         <td>${(m.pins || []).map(x => `Ø${x.dia} ${esc(x.profile)}`).join(', ')}</td><td>${m.radius ? 'Yes' : 'No'}</td><td>${m.reverse ? 'Yes' : 'No'}</td><td>${p.done} / ${p.total}</td>
-        <td><a class="btn" href="#machines/${m.id}">Edit</a></td></tr>`; }).join('')}</table>` : '<span class="muted">No machines yet.</span>'}</div>`;
+        <td style="white-space:nowrap"><a class="btn" href="#machines/${m.id}">Edit</a> <button class="danger" data-delmachine="${m.id}">Delete</button></td></tr>`; }).join('')}</table>` : '<span class="muted">No machines yet.</span>'}</div>`;
+    main.querySelectorAll('[data-delmachine]').forEach(b => b.addEventListener('click', () => {
+      const m = SA.get('machines', b.dataset.delmachine);
+      if (m && confirm(`Delete ${m.name}? Its saved pieces stay in Review data.`)) { SA.remove('machines', m.id); render(); }
+    }));
   }
   function machineEdit(id) {
     if (!ed || ed.key !== id) {
