@@ -46,7 +46,9 @@ select
   coalesce((a.data->>'rev')::boolean, false)    as bent_from_end,
   a.data->>'status'                   as status,
   a.data->>'note'                     as note,
-  coalesce((a.data->>'voided')::boolean, false) as voided
+  coalesce((a.data->>'voided')::boolean, false) as voided,
+  (a.data->>'od')::numeric            as ring_outside_diameter,
+  (a.data->>'hook')::numeric          as ring_hook_length
 from public.shape_audits a
 left join public.shape_machines m on m.id = a.data->>'machine_id'
 where not a.deleted;
@@ -61,7 +63,9 @@ select
   data->'pins'    as pins,
   coalesce((data->>'radius')::boolean, false)  as radius_shapes,
   coalesce((data->>'reverse')::boolean, false) as reverse_bend,
-  data->>'notes'  as notes
+  data->>'notes'  as notes,
+  coalesce(data->>'type', 'bender')               as machine_type,
+  coalesce((data->>'ringHooks')::boolean, false)  as rings_with_hooks
 from public.shape_machines
 where not deleted;
 

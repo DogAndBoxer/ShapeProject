@@ -25,6 +25,13 @@ window.SA = (() => {
       BUILTIN.push({ id: `p2-${k}-${a}-${b}`, kind: 'primitive', name: `Two bends: ${a}° then ${b}°, ${label}`, code: `l0,w${a},l0,w${k === 's' ? b : -b},l0` });
   // Composites: whole shapes whose limit is not pairwise. Add more here, or add custom shapes from the builder.
   BUILTIN.push({ id: 'tie-sq-135', kind: 'composite', name: 'Square closed tie, 135° hooks', code: 'l0,w135,l0,w90,l0,w90,l0,w90,l0,w135,l0' });
+  // Rings with hooks: a hook, a bend, a ring that laps itself, the same bend, the same hook, all turning the
+  // same way (l200,w90,r393,l3000,w90,l200). Only for benders marked as making them. The operator enters the
+  // smallest outside diameter and the hook length; the lap is drawn at RING_SWEEP and is not a measurement.
+  const RING_ANGLES = [90, 145, 180], RING_SWEEP = 3000 / 393;
+  for (const a of RING_ANGLES) BUILTIN.push({ id: `ring-hook-${a}`, kind: 'ring', angle: a, name: `Ring with ${a}° hooks`, code: `l200,w${a},r393,l3000,w${a},l200` });
+  // A radius machine makes plain rings only: one figure per bar diameter, the smallest ring's outside diameter.
+  const RING_MIN = { id: 'ring-min', kind: 'ringmin', name: 'Smallest ring' };
 
   // Primitive ids, as the check uses them: lead-A, tail-A, int-s-A-B, int-o-A-B (A made first).
   const PRIM_IDS = [];
@@ -138,11 +145,14 @@ window.SA = (() => {
     return legs.length ? { legs, arcs, bends } : null;
   }
   const customShapes = () => rows('shapes').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-  const shapesFor = m => BUILTIN.concat(customShapes().filter(s => !s.hasArc || m.radius));
+  // Arcs with bends are judged case by case, so added shapes with an arc are never queued; the ring-with-hooks
+  // pieces are the exception and go only to benders marked as making them.
+  const shapesFor = m => BUILTIN.filter(s => s.kind !== 'ring' || m.ringHooks).concat(customShapes().filter(s => !s.hasArc));
   const comboKey = c => `${c.wire}|${c.pin}|${c.profile}`;
   // Wire and pin pairs the machine runs: every pair of its wires and pins, less the ones switched off.
   function combosOf(m) {
     const off = new Set(m.off || []), out = [];
+    if (m.type === 'radius') return out;
     for (const wire of (m.wires || []).slice().sort((a, b) => a - b))
       for (const p of (m.pins || []).slice().sort((a, b) => a.dia - b.dia || a.profile.localeCompare(b.profile))) {
         const c = { wire, pin: p.dia, profile: p.profile };
@@ -154,10 +164,17 @@ window.SA = (() => {
   // Every piece the machine owes, wire outermost so changeovers are few. state: todo, skipped or done.
   function queue(m) {
     const mine = liveAudits().filter(r => r.machine_id === m.id), items = [];
+    const stateOf = recs => recs.some(r => r.status === 'done' || r.status === 'cannot') ? 'done' : recs.some(r => r.status === 'skip') ? 'skipped' : 'todo';
+    if (m.type === 'radius') {
+      for (const wire of (m.wires || []).slice().sort((a, b) => a - b)) {
+        const recs = mine.filter(r => r.shape_id === RING_MIN.id && r.wire === wire);
+        items.push({ combo: { wire, pin: null, profile: null }, shape: RING_MIN, state: stateOf(recs), recs });
+      }
+      return items;
+    }
     for (const combo of combosOf(m)) for (const shape of shapesFor(m)) {
       const recs = mine.filter(r => r.shape_id === shape.id && r.wire === combo.wire && r.pin === combo.pin && r.profile === combo.profile);
-      const state = recs.some(r => r.status === 'done' || r.status === 'cannot') ? 'done' : recs.some(r => r.status === 'skip') ? 'skipped' : 'todo';
-      items.push({ combo, shape, state, recs });
+      items.push({ combo, shape, state: stateOf(recs), recs });
     }
     return items;
   }
@@ -174,7 +191,7 @@ window.SA = (() => {
   // (tangent point to tangent point, or to the bar end) worked out with the piece's own bar and pin.
   function observations(rec) {
     const s = parseNSS(rec.code);
-    if (!s) return [];
+    if (!s || s.arcs.some(Boolean)) return [];   // a segment beside an arc is not the same case as one between straights
     const Ro = rec.pin / 2 + (rec.actual || actualOf(rec.wire)), n = s.legs.length, out = [];
     const onGrid = b => GRID.includes(b.a);
     for (let i = 0; i < n; i++) {
@@ -199,10 +216,11 @@ window.SA = (() => {
     const vkey = r => `${r.machine_id}|${comboKey(r)}|${r.shape_id}`;
     for (const r of done) versions.set(vkey(r), (versions.get(vkey(r)) || 0) + 1);
     for (const r of done) {
-      const gk = `${r.machine_id}|${comboKey(r)}`;
+      const gk = `${r.machine_id}|${comboKey(r)}`, obs = observations(r);
+      if (!obs.length) continue;
       if (!groups.has(gk)) { const m = get('machines', r.machine_id); groups.set(gk, { machine_id: r.machine_id, machine: m ? m.name : '(deleted machine)', wire: r.wire, pin: r.pin, profile: r.profile, prim: {} }); }
       const g = groups.get(gk);
-      for (const o of observations(r)) {
+      for (const o of obs) {
         const cur = g.prim[o.id];
         if (!cur || o.straight < cur.straight) g.prim[o.id] = { straight: o.straight, rec: r.id, tradeoff: versions.get(vkey(r)) > 1, count: (cur ? cur.count : 0) + 1 };
         else cur.count++;
@@ -210,6 +228,33 @@ window.SA = (() => {
     }
     return [...groups.values()];
   }
+  // Ring minimums. plain: smallest ring per radius machine and bar. hooked: smallest diameter and shortest hook
+  // per bender, bar, pin and hook angle, each taken across the versions saved.
+  function ringData() {
+    const plain = new Map(), hooked = new Map();
+    const name = id => { const m = get('machines', id); return m ? m.name : '(deleted machine)'; };
+    for (const r of liveAudits()) {
+      if (r.status !== 'done' || !(r.od > 0)) continue;
+      if (r.shape_id === RING_MIN.id) {
+        const k = `${r.machine_id}|${r.wire}`, cur = plain.get(k);
+        if (!cur || r.od < cur.od) plain.set(k, { machine_id: r.machine_id, machine: name(r.machine_id), wire: r.wire, od: r.od });
+      } else if (String(r.shape_id).startsWith('ring-hook-')) {
+        const angle = +r.shape_id.slice(10), k = `${r.machine_id}|${comboKey(r)}|${angle}`;
+        const e = hooked.get(k) || { machine_id: r.machine_id, machine: name(r.machine_id), wire: r.wire, pin: r.pin, profile: r.profile, angle, od: Infinity, hook: Infinity, versions: 0 };
+        e.od = Math.min(e.od, r.od); if (r.hook > 0) e.hook = Math.min(e.hook, r.hook); e.versions++;
+        hooked.set(k, e);
+      }
+    }
+    return { plain: [...plain.values()], hooked: [...hooked.values()] };
+  }
+  // What was achieved on a saved piece, as text.
+  function recText(r) {
+    if (r.status !== 'done') return '';
+    const f = v => v == null ? '–' : String(Math.round(v));
+    if (r.od > 0) return `Ø${f(r.od)} outside` + (r.hook > 0 ? ` · hooks ${f(r.hook)}` : '');
+    return (r.legs || []).map(f).join(' / ');
+  }
+
   // Grid angles and weights for an angle: one on a grid angle, two between, none under 45.
   function gridWeights(a) {
     if (a < GRID[0] - 1e-6 || a > 180 + 1e-6) return null;
@@ -221,7 +266,7 @@ window.SA = (() => {
   }
 
   return {
-    GRID, PROFILES, BUILTIN, PRIM_IDS, primInfo, actualOf, setbackOf, esc, cfg, saveCfg, rows, get, put, remove,
+    GRID, PROFILES, BUILTIN, RING_ANGLES, RING_SWEEP, RING_MIN, ringData, recText, PRIM_IDS, primInfo, actualOf, setbackOf, esc, cfg, saveCfg, rows, get, put, remove,
     sync, syncState: () => syncState, onChange: f => listeners.push(f), exportAll, importAll,
     parseNSS, customShapes, shapesFor, comboKey, combosOf, queue, nextItem, observations, minimums, gridWeights,
   };
