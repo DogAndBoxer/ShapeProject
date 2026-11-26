@@ -272,8 +272,8 @@
     <table id="rows"></table>
     <div id="ringForm" hidden>
       <label><span>Ring outside diameter</span><input id="ringOD" type="number" inputmode="decimal" min="1" step="1"> mm</label>
-      <label><span>Hook length</span><input id="ringHook" type="number" inputmode="decimal" min="1" step="1"> mm</label>
-      <div class="info">Both hooks are the same length. The lap is drawn for reference and is not measured.</div>
+ <label id="ringHookWrap"><span>Hook length</span><input id="ringHook" type="number" inputmode="decimal" min="1" step="1"> mm</label>
+      <div class="info">The lap is drawn for reference and is not measured. Where there are hooks, both are the same length.</div>
     </div>
     <div class="hint">
       <kbd>Enter</kbd> next field &nbsp; <kbd>C</kbd> in the last length cuts &nbsp; <kbd>↑</kbd><kbd>↓</kbd> or <kbd>Space</kbd> set bend direction
@@ -397,7 +397,10 @@
         sol = solveArc(a, L0, d);
         if (sol && !sol.bad) r = (a.d >= 0 ? 1 : -1) * sol.Rcl;
         else L = null;
-      } else if (L == null && auditOn) { L = min + Math.max(80, 8 * d); ghost = true; }   // audit entry: draw a segment not yet entered at a nominal length
+      } else if (L == null && auditOn) {   // audit entry: draw a segment not yet entered at a nominal length, long or short as the shape's code has it
+        const ref = st.ghostRef || [], lo = Math.min(...ref.filter(v => v > 0));
+        L = min + Math.max(80, 8 * d) * (ref[i] > 0 && isFinite(lo) ? Math.min(4, ref[i] / lo) : 1); ghost = true;
+      }
       const empty = L == null;
       const S = (empty ? 0 : L) - min;
       return { L, min, S, empty, ghost, short: !empty && S < 0, arc: !!a, r, sol: sol && !sol.bad ? sol : null, badArc: !!(sol && sol.bad), Ro: sol && !sol.bad ? sol.Ro : null };
@@ -1181,7 +1184,7 @@
         lk = lookup(group, lead ? 'lead' : 'tail', clampAngle((bL || bR).a));
       }
       if (lk.none) { out.text = lk.none; continue; }
-      if (lk.min == null) { out.text = `not audited (${lk.ids.join(', ')})`; continue; }
+      if (lk.min == null) { out.text = 'no audited shape has this segment'; continue; }
       const minLeg = lk.min + leg.min, tag = lk.interp ? ', interpolated' : '';
       out.trade = lk.trade;
       if (leg.L >= minLeg - 0.5) { out.status = 'ok'; out.text = `min ${fmt(minLeg)}${tag}`; }
@@ -1190,22 +1193,51 @@
     const status = legs.some(l => l.status === 'bad') ? 'bad' : legs.every(l => l.status === 'ok') ? 'ok' : 'unk';
     return { status, legs };
   }
+  // One feed order, checked against saved versions of this same shape. A version is a full set of lengths that
+  // was made together, so the shape passes if some version has every segment no longer than the shape's. That
+  // covers trade-offs between neighbouring segments, which the segment-by-segment check cannot.
+  function checkWhole(an, versions, rev) {
+    const vs = versions.filter(v => v.rev === rev), asLen = v => v.S.map((x, i) => fmt(x + an.legs[i].min)).join(' / ');
+    if (!vs.length) return { status: 'unk', legs: [], note: `Not audited bent from the ${rev ? 'end' : 'start'}.` };
+    if (vs.some(v => v.S.every((x, i) => an.legs[i].S >= x - 0.5))) return { status: 'ok', legs: [] };
+    const legs = [];
+    an.legs.forEach((l, i) => { const lo = Math.min(...vs.map(v => v.S[i])); if (l.S < lo - 0.5) legs.push({ i, status: 'bad', text: `${fmt(l.L)} is under the shortest made, ${fmt(lo + l.min)}` }); });
+    if (legs.length) return { status: 'bad', legs };
+    return { status: 'unk', legs: [], note: `Each length has been made, but not together. Saved: ${vs.map(asLen).join('; ')}.` };
+  }
   const RANK = { ok: 2, unk: 1, bad: 0 };
   function checkShape(an) {
     const out = { rows: [], others: [], note: '' };
     if (st.legs.length < 2 || !st.bends.some(b => clampAngle(b.a) > 0)) { out.note = 'No bends to check.'; return out; }
     if (st.bends.some(b => b.pin && b.pin !== st.pin)) { out.note = 'This shape has its own pin on some bends. Minimums are audited with one pin per piece, so it is not checked.'; return out; }
-    for (const g of SA.minimums()) {
-      if (g.wire !== st.gauge) continue;
-      if (g.pin !== st.pin) { out.others.push(`Ø${g.pin} ${g.profile} on ${g.machine}`); continue; }
-      const fwd = checkOrder(an, g, false), rev = checkOrder(an, g, true);
-      out.rows.push({ machine: g.machine, set: g, fwd, rev, best: RANK[fwd.status] >= RANK[rev.status] ? fwd.status : rev.status });
+    // saved versions of this same shape, lined up with it and turned into straights with their own bar and pin
+    const q = st.bends.map(b => clampAngle(b.a) * (b.d > 0 ? 1 : -1)), angles = st.bends.map(b => clampAngle(b.a));
+    const complete = an.legs.every(l => !l.empty && !l.short && !l.arc), whole = new Map(), groups = new Map();
+    for (const v of SA.shapeVersions()) {
+      const r = v.rec;
+      if (r.wire !== st.gauge) continue;
+      const key = `${r.machine_id}|${SA.comboKey(r)}`;
+      if (!groups.has(key)) groups.set(key, { machine: v.machine, wire: r.wire, pin: r.pin, profile: r.profile, prim: {} });
+      if (!complete || r.pin !== st.pin) continue;
+      const Ro = r.pin / 2 + (r.actual || actualOf(r.wire)), sb = angles.map(a => SA.setbackOf(a, Ro));
+      for (const al of SA.alignments(q, v.seq)) {
+        const L = al.reverse ? v.legs.slice().reverse() : v.legs;
+        if (!whole.has(key)) whole.set(key, []);
+        whole.get(key).push({ S: L.map((x, i) => x - (i > 0 ? sb[i - 1] : 0) - (i < sb.length ? sb[i] : 0)), rev: !!r.rev !== al.reverse });
+      }
     }
-    out.rows.sort((a, b) => RANK[b.best] - RANK[a.best]);
+    for (const g of SA.minimums()) if (g.wire === st.gauge) groups.set(`${g.machine_id}|${SA.comboKey(g)}`, g);
+    for (const [key, g] of groups) {
+      if (g.pin !== st.pin) { out.others.push(`Ø${g.pin} ${g.profile} on ${g.machine}`); continue; }
+      const vs = whole.get(key);
+      const fwd = vs ? checkWhole(an, vs, false) : checkOrder(an, g, false), rev = vs ? checkWhole(an, vs, true) : checkOrder(an, g, true);
+      out.rows.push({ machine: g.machine, set: g, fwd, rev, whole: !!vs, best: RANK[fwd.status] >= RANK[rev.status] ? fwd.status : rev.status });
+    }
+    out.rows.sort((a, b) => RANK[b.best] - RANK[a.best] || a.machine.localeCompare(b.machine));
     return out;
   }
-  // Shapes with an arc. A plain arc or ring is checked against each radius machine's smallest ring; a ring with
-  // 90, 145 or 180 hooks against the benders audited for it. Any other mix of arcs and bends is not judged.
+  // Shapes with an arc. A plain arc or ring is checked against each machine's smallest ring; a ring with
+  // 90, 135 or 180 hooks against the benders audited for it. Any other mix of arcs and bends is not judged.
   function ringCheck(an) {
     if (!st.arcs.some(Boolean)) return null;
     const data = SA.ringData(), n = st.legs.length, caseByCase = { note: 'Arcs with bends are evaluated case by case.' };
@@ -1214,8 +1246,8 @@
       const od = odOf(0);
       if (od == null) return { note: 'The arc needs a cut length and an outside radius.' };
       return {
-        rows: data.plain.filter(r => r.wire === st.gauge).map(r => ({ machine: r.machine, what: 'radius machine', ok: od >= r.od - 0.5, why: [`Outside diameter ${fmt(od)} is under the smallest ring made, ${fmt(r.od)}`], min: `smallest ring Ø${fmt(r.od)}` })),
-        none: `No radius machine has a smallest ring recorded for N${st.gauge}.`,
+        rows: data.plain.filter(r => r.wire === st.gauge).map(r => ({ machine: r.machine, what: 'plain ring', ok: od >= r.od - 0.5, why: [`Outside diameter ${fmt(od)} is under the smallest ring made, ${fmt(r.od)}`], min: `smallest ring Ø${fmt(r.od)}` })),
+        none: `No machine has a smallest ring recorded for N${st.gauge}.`,
         foot: an.legs[0].sol.calc.angle < 359.5 ? 'This is a partial arc, checked against the smallest full ring. A short arc may behave differently.' : '',
       };
     }
@@ -1262,17 +1294,17 @@
     }
     const good = res.rows.filter(r => r.best === 'ok'), maybe = res.rows.filter(r => r.best === 'unk');
     const where = r => `${esc(r.machine)} (${esc(r.set.profile)} pin, bent from the ${r.fwd.status === 'ok' ? (r.rev.status === 'ok' ? 'start or the end' : 'start') : 'end'})`;
-    if (good.length) h += `<div class="verdict ok">Every segment is at or above the audited minimum on ${good.map(where).join(', ')}.</div>`;
-    else if (maybe.length) h += `<div class="verdict unk">Undetermined: not ruled out on ${maybe.map(r => esc(r.machine)).join(', ')}, but some segments have not been audited there.</div>`;
+    if (good.length) h += `<div class="verdict ok">Can be made at these lengths on ${good.map(where).join(', ')}.</div>`;
+    else if (maybe.length) h += `<div class="verdict unk">Undetermined: not ruled out on ${maybe.map(r => esc(r.machine)).join(', ')}, but the audit does not cover it there.</div>`;
     else h += '<div class="verdict bad">Under the audited minimums on every machine with data for this bar and pin.</div>';
     const cell = o => {
       const trade = o.legs.filter(l => l.status === 'ok' && l.trade).map(l => l.i + 1);
-      return `<span class="st ${o.status}">${STATUS[o.status]}</span>` + o.legs.filter(l => l.status !== 'ok').map(l => `<div class="why">Segment ${l.i + 1}: ${esc(l.text)}</div>`).join('')
+      return `<span class="st ${o.status}">${STATUS[o.status]}</span>` + (o.note ? `<div class="why">${esc(o.note)}</div>` : '') + o.legs.filter(l => l.status !== 'ok').map(l => `<div class="why">Segment ${l.i + 1}: ${esc(l.text)}</div>`).join('')
         + (trade.length ? `<div class="why unk">Trade-off recorded on segment${trade.length > 1 ? 's' : ''} ${trade.join(', ')}: that minimum may not hold with its neighbours at theirs.</div>` : '');
     };
-    h += `<table><tr><th>Machine</th><th>Pin</th><th>Bent from the start</th><th>Bent from the end</th></tr>${res.rows.map(r =>
-      `<tr><td>${esc(r.machine)}</td><td>Ø${r.set.pin} ${esc(r.set.profile)}</td><td>${cell(r.fwd)}</td><td>${cell(r.rev)}</td></tr>`).join('')}</table>`;
-    h += '<div class="muted" style="margin-top:6px">Checks segment minimums only. Collisions with the machine or with the bar itself are not checked.</div>';
+    h += `<table><tr><th>Machine</th><th>Pin</th><th>Checked</th><th>Bent from the start</th><th>Bent from the end</th></tr>${res.rows.map(r =>
+      `<tr><td>${esc(r.machine)}</td><td>Ø${r.set.pin} ${esc(r.set.profile)}</td><td>${r.whole ? 'as this shape' : 'segment by segment'}</td><td>${cell(r.fwd)}</td><td>${cell(r.rev)}</td></tr>`).join('')}</table>`;
+    h += '<div class="muted" style="margin-top:6px">"As this shape" compares against versions of this exact shape made on that machine. "Segment by segment" is used where the shape itself was not audited: each segment is compared with the shortest made between the same two bends in other shapes, which is less certain. Collisions with the machine or with the bar itself are not checked.</div>';
     if (res.others.length) h += `<div class="muted">Other pins with N${st.gauge} data: ${esc(res.others.join('; '))}.</div>`;
     body.innerHTML = h;
   }
@@ -1286,16 +1318,20 @@
   // nominal size; the hooks are left blank so they draw as not entered.
   function ringApply() {
     const a = audit.item.shape.angle, Ro = ringOD != null ? ringOD / 2 : Math.max(20 * st.actual, 2 * st.pin);
-    st.bends = [{ a, d: 1 }, { a, d: 1 }];
-    st.arcs = [null, { Ro, d: 1 }, null];
-    st.legs = [ringHook, SA.RING_SWEEP * (Ro - st.actual / 2), ringHook];
+    st.ghostRef = null;
+    if (audit.plain) { st.bends = []; st.arcs = [{ Ro, d: 1 }]; st.legs = [SA.PLAIN_SWEEP * (Ro - st.actual / 2)]; }
+    else {
+      st.bends = [{ a, d: 1 }, { a, d: 1 }];
+      st.arcs = [null, { Ro, d: 1 }, null];
+      st.legs = [ringHook, SA.RING_SWEEP * (Ro - st.actual / 2), ringHook];
+    }
     st.cut = true; st.pins = []; st.view = 'standard'; st.rot = 0;
     rebuild();
   }
   function ringBlank() { ringOD = ringHook = null; $('#ringOD').value = ''; $('#ringHook').value = ''; ringApply(); $('#ringOD').focus(); }
   for (const [id, set] of [['#ringOD', v => { ringOD = v; }], ['#ringHook', v => { ringHook = v; }]]) {
     $(id).addEventListener('input', e => { const v = num(e.target.value); set(v > 0 ? v : null); aMsg(''); ringApply(); });
-    $(id).addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); if (id === '#ringOD') $('#ringHook').focus(); else $('#aNext').click(); });
+    $(id).addEventListener('keydown', e => { if (e.key !== 'Enter') return; e.preventDefault(); if (id === '#ringOD' && !audit.plain) $('#ringHook').focus(); else $('#aNext').click(); });
   }
   const aMsg = (text, ok) => { const e = $('#aMsg'); e.textContent = text || ''; e.classList.toggle('ok', !!ok); };
   function auditVersions() {
@@ -1305,6 +1341,7 @@
   }
   function auditBlank() {
     Object.assign(st, parseCode(audit.item.shape.code));
+    st.ghostRef = st.legs.slice();                            // which segments are long and which short, for the drawing
     st.legs = st.legs.map((L, i) => st.arcs[i] ? L : null);   // straights are for the operator; an arc keeps its reference length and radius
     st.cut = true; st.pins = []; st.view = 'standard'; st.rot = 0;
     rebuild({ kind: 'len', i: st.arcs[0] ? 0 : st.legs.findIndex((L, i) => !st.arcs[i]), select: true });
@@ -1315,8 +1352,9 @@
     if (!keepMsg) aMsg('');
     if (!m) { $('#aWork').hidden = true; $('#aMachine').textContent = 'Machine not found'; aMsg('This machine is not in the audit data on this laptop. Go back to Audit home.'); return; }
     const items = SA.queue(m), item = SA.nextItem(items), done = items.filter(i => i.state === 'done').length;
-    audit = { machine: m, item, ring: !!item && item.shape.kind === 'ring' };
-    $('#rows').hidden = audit.ring; $('#ringForm').hidden = !audit.ring;
+    const kind = item ? item.shape.kind : '';
+    audit = { machine: m, item, ring: kind === 'ring' || kind === 'ringmin', plain: kind === 'ringmin' };
+    $('#rows').hidden = audit.ring; $('#ringForm').hidden = !audit.ring; $('#ringHookWrap').hidden = audit.plain;
     $('#aMachine').textContent = m.name;
     $('#aProg').textContent = `${done} of ${items.length} done` + (items.some(i => i.state === 'skipped') ? ` · ${items.filter(i => i.state === 'skipped').length} skipped` : '') + (SA.cfg.operator ? ` · ${SA.cfg.operator}` : '');
     if (!item) {
@@ -1326,15 +1364,16 @@
       return;
     }
     $('#aWork').hidden = false;
-    st.gauge = item.combo.wire; st.pin = item.combo.pin; st.pinAuto = false; st.actual = actualOf(st.gauge); st.actualAuto = true;
+    st.gauge = item.combo.wire; st.pin = item.combo.pin || st.gauge * PIN_RATIO; st.pinAuto = false; st.actual = actualOf(st.gauge); st.actualAuto = true;
     syncHeader();
-    const custom = !SA.BUILTIN.some(b => b.id === item.shape.id);
-    $('#aCombo').textContent = `${m.feed === 'coil' ? 'Wire' : 'Bar'} ${item.combo.wire} mm · pin Ø${item.combo.pin} ${item.combo.profile}`;
+    $('#aCombo').textContent = `${m.feed === 'coil' ? 'Wire' : 'Bar'} ${item.combo.wire} mm` + (item.combo.pin ? ` · pin Ø${item.combo.pin} ${item.combo.profile}` : '');
     $('#aShape').textContent = item.shape.name + (item.state === 'skipped' ? ' (skipped earlier)' : '');
-    $('#aRevWrap').hidden = !custom; $('#aRev').value = '0';
-    $('#aInstr').textContent = audit.ring
+    $('#aRevWrap').hidden = audit.ring; $('#aRev').value = '0';
+    $('#aInstr').textContent = audit.plain
+      ? 'Make the smallest ring the machine will go in this bar. Enter its outside diameter.'
+      : audit.ring
       ? 'Make the smallest ring the machine will go with these hooks, and the hooks as short as they will go. Enter the outside diameter of the ring and the hook length. If a smaller ring needs longer hooks, save it and add another version.'
-      : `Make this shape with every segment as short as the machine will go${custom ? '' : ', making bend 1 first'}. Enter the lengths you achieved. If getting one segment shorter forces another longer, save it and add another version.`;
+      : 'Make this shape with every segment as short as the machine will go. Enter the lengths you achieved, and set which end you bent from. If getting one segment shorter forces another longer, save it and add another version.';
     if (audit.ring) ringBlank(); else auditBlank();
     auditVersions();
   }
@@ -1342,19 +1381,19 @@
     const it = audit.item, done = status === 'done';
     if (done) {
       if (audit.ring && ringOD == null) { aMsg('Enter the outside diameter of the ring first.'); $('#ringOD').focus(); return false; }
-      if (audit.ring && ringHook == null) { aMsg('Enter the hook length first.'); $('#ringHook').focus(); return false; }
+      if (audit.ring && !audit.plain && ringHook == null) { aMsg('Enter the hook length first.'); $('#ringHook').focus(); return false; }
       if (st.legs.some(L => L == null)) { aMsg('Enter a length for every segment first.'); focusInput('len', st.legs.findIndex(L => L == null), true); return false; }
       const an = analyse(), bad = an.legs.findIndex(l => l.short || l.badArc || (l.arc && !l.sol));
-      if (bad >= 0) { aMsg(audit.ring ? (bad === 1 ? 'That ring cannot be right: it is smaller than the bar allows.' : 'That hook cannot be right: it is shorter than its bend allows for this bar and pin.') : `Segment ${bad + 1} cannot be right: it is shorter than the bends at its ends allow for this bar and pin.`); if (!audit.ring) focusInput('len', bad, true); return false; }
+      if (bad >= 0) { aMsg(audit.ring ? (bad === 1 || audit.plain ? 'That ring cannot be right: it is smaller than the bar allows.' : 'That hook cannot be right: it is shorter than its bend allows for this bar and pin.') : `Segment ${bad + 1} cannot be right: it is shorter than the bends at its ends allow for this bar and pin.`); if (!audit.ring) focusInput('len', bad, true); return false; }
     }
-    SA.put('audits', Object.assign(done && audit.ring ? { od: ringOD, hook: ringHook } : {}, {
+    SA.put('audits', Object.assign(done && audit.ring ? (audit.plain ? { od: ringOD } : { od: ringOD, hook: ringHook }) : {}, {
       machine_id: audit.machine.id, wire: it.combo.wire, actual: st.actual, pin: it.combo.pin, profile: it.combo.profile,
-      shape_id: it.shape.id, shape_name: it.shape.name, code: done ? toCode() : it.shape.code, legs: done ? st.legs.slice() : [],
-      rev: done && $('#aRev').value === '1', status, note: note || '', operator: SA.cfg.operator || '', at: new Date().toISOString(), voided: false,
+      shape_id: it.shape.id, shape_name: it.shape.name, code: done && !audit.plain ? toCode() : it.shape.code, legs: done && !audit.plain ? st.legs.slice() : [],
+      rev: done && !audit.ring && $('#aRev').value === '1', status, note: note || '', operator: SA.cfg.operator || '', at: new Date().toISOString(), voided: false,
     }));
     return true;
   }
-  $('#aNext').addEventListener('click', () => { if (auditSave('done')) { auditLoad(); aMsg('Saved.', true); } });
+  $('#aNext').addEventListener('click', () => { if (auditSave('done')) { auditLoad(); if (audit.item) aMsg('Saved.', true); } });   // on the last piece, leave the completion message up
   $('#aVersion').addEventListener('click', () => { if (auditSave('done')) { if (audit.ring) ringBlank(); else auditBlank(); const n = auditVersions(); aMsg(`Saved version ${n}. Enter the next combination, or skip to move on.`, true); } });
   $('#aSkip').addEventListener('click', () => {
     if (auditVersions() > 0) return auditLoad();   // already has a version: nothing owed, just move on
@@ -1368,8 +1407,10 @@
   $('#addAudit').addEventListener('click', () => {
     const an = analyse();
     if (st.legs.length < 2 || an.legs.some(l => l.empty)) { alert('Finish the shape first: it needs at least one bend and a length on every segment.'); return; }
-    if (st.arcs.some(Boolean)) { alert('Shapes with an arc are not added to the audit: arcs with bends are evaluated case by case. Rings with 90°, 145° and 180° hooks are already built in.'); return; }
-    const name = prompt('Name for this shape in the audit list:');
+    if (st.arcs.some(Boolean)) { alert('Shapes with an arc are not added to the audit: arcs with bends are evaluated case by case. Rings with 90°, 135° and 180° hooks are already built in.'); return; }
+    const dup = SA.BUILTIN.concat(SA.customShapes()).find(x => SA.shapeKey(x) === SA.sigOf(toCode()));
+    if (dup) { alert(`This shape is already in the audit as "${dup.name}".`); return; }
+    const name = prompt('Name for this shape in the audit list:', SA.describe(toCode()));
     if (!name || !name.trim()) return;
     SA.put('shapes', { name: name.trim(), code: toCode(), kind: 'custom', hasArc: st.arcs.some(Boolean), created: new Date().toISOString() });
     const b = $('#addAudit'), old = b.textContent; b.textContent = 'Added'; setTimeout(() => { b.textContent = old; }, 1200);
