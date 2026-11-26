@@ -13,25 +13,83 @@ window.SA = (() => {
   const uuid = () => (crypto.randomUUID ? crypto.randomUUID() : ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c => (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)));
 
   // ---------- catalogue ----------
-  // Audit pieces carry angles only. The operator makes each as short as the machine allows and enters what
-  // was achieved, so one piece gives a minimum for every segment in it. Bend 1 is made first.
-  //   p1-A        one bend: gives lead-A and tail-A
-  //   p2-s-A-B    two bends the same way, A made first: gives lead-A, int-s-A-B, tail-B
-  //   p2-o-A-B    two bends opposite ways
-  const BUILTIN = [];
-  for (const a of GRID) BUILTIN.push({ id: `p1-${a}`, kind: 'primitive', name: `One bend: ${a}°`, code: `l0,w${a},l0` });
-  for (const [k, label] of [['s', 'same direction'], ['o', 'opposite directions']])
-    for (const a of GRID) for (const b of GRID)
-      BUILTIN.push({ id: `p2-${k}-${a}-${b}`, kind: 'primitive', name: `Two bends: ${a}° then ${b}°, ${label}`, code: `l0,w${a},l0,w${k === 's' ? b : -b},l0` });
-  // Composites: whole shapes whose limit is not pairwise. Add more here, or add custom shapes from the builder.
-  BUILTIN.push({ id: 'tie-sq-135', kind: 'composite', name: 'Square closed tie, 135° hooks', code: 'l0,w135,l0,w90,l0,w90,l0,w90,l0,w135,l0' });
+  // The audit asks each bender for the shapes cut most often, not every bend combination. A shape here is its
+  // bends only: the lengths in a code just say which segments are short and which long, for the drawing. The
+  // operator makes each as short as the machine will go and enters every length achieved.
+  const TOP_SHAPES = [
+    'l100,w90,l100',
+    'l100,w90,l100,w90,l100',
+    'l100,w135,l1000,w90,l1000,w90,l1000,w90,l1000,w135,l100',
+    'l100,w90,l100,w-90,l100',
+    'l100,w180,l1000,w180,l100',
+    'l100,w135,l1000',
+    'l100,w180,l1000,w90,l1000,w90,l1000,w180,l100',
+    'l100,w180,l1000',
+    'l100,w135,l1000,w-135,l100',
+    'l100,w135,l1000,w90,l1000,w90,l1000,w135,l100',
+    'l100,w180,l1000,w90,l100',
+    'l100,w135,l1000,w135,l100',
+    'l100,w90,l100,w-90,l100,w-90,l100,w90,l100',
+    'l100,w90,l1000,w90,l1000,w90,l1000,w90,l1000,w90,l100',
+    'l100,w135,l1000,w90,l100',
+    'l100,w90,l100,w90,l100,w-90,l100',
+    'l100,w-45,l100,w45,l100,w45,l100,w-45,l100',
+    'l100,w180,l1000,w180,l1000,w180,l100',
+    'l100,w90,l1000,w-180,l1000,w90,l100',
+  ];
+
+  // Minimal NSS reader: segment lengths, bends (angle and direction), which segments are arcs.
+  function parseNSS(code) {
+    const legs = [], arcs = [], bends = [];
+    let pendingR = false;
+    for (const t of String(code || '').trim().split(/[\s,]+/).filter(Boolean)) {
+      const m = t.match(/^([lwr])(-?\d+(?:\.\d+)?)$/i);
+      if (!m) return null;
+      const k = m[1].toLowerCase(), v = +m[2];
+      if (k === 'r') pendingR = true;
+      else if (k === 'l') { if (legs.length > bends.length) bends.push({ a: 0, d: 1 }); legs.push(v > 0 ? v : null); arcs.push(pendingR); pendingR = false; }
+      else { if (legs.length === bends.length) return null; bends.push({ a: Math.min(180, Math.abs(v)), d: v < 0 ? -1 : 1 }); }
+    }
+    return legs.length ? { legs, arcs, bends } : null;
+  }
+  // A shape's bends as signed angles. The same shape can be written four ways: as is, mirrored (every bend the
+  // other way), from the other end, or both. From the other end, the bends come in reverse order and each turns
+  // the other way, so "reverse and mirror" is simply the list reversed.
+  const seqOf = p => p.bends.map(b => b.a * b.d);
+  const neg = q => q.map(v => -v || 0), same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  // Signature: one string for all four ways of writing a shape, so records and shapes match however they were
+  // entered. null for anything with an arc or without a bend.
+  function sigOf(code) {
+    const p = typeof code === 'string' ? parseNSS(code) : code;
+    if (!p || p.arcs.some(Boolean) || !p.bends.length) return null;
+    const q = seqOf(p), r = q.slice().reverse();
+    return [q, neg(q), r, neg(r)].map(v => v.join('_')).sort()[0];
+  }
+  // How a record with bends r lines up with a shape with bends q: [{ reverse }] for each way that works.
+  // reverse means the record's segments run the other way along the shape. A symmetric shape lines up both ways.
+  function alignments(q, r) {
+    const out = [], rr = r.slice().reverse();
+    if (same(q, r) || same(q, neg(r))) out.push({ reverse: false });
+    if (same(q, rr) || same(q, neg(rr))) out.push({ reverse: true });
+    return out;
+  }
+  const symmetric = code => { const p = parseNSS(code); return !!p && alignments(seqOf(p), seqOf(p)).length > 1; };
+  function describe(code) {
+    const p = parseNSS(code);
+    if (!p || !p.bends.length) return 'Straight';
+    if (p.bends.length === 1) return `One bend: ${p.bends[0].a}°`;
+    const oneWay = p.bends.every(b => b.d === p.bends[0].d), first = p.bends[0].d;
+    return `${p.bends.length} bends: ` + p.bends.map(b => `${b.a}°` + (oneWay ? '' : b.d === first ? ' up' : ' down')).join(' / ') + (oneWay ? ', all one way' : '');
+  }
+  const BUILTIN = TOP_SHAPES.map(code => ({ id: 's-' + sigOf(code), kind: 'shape', sig: sigOf(code), name: describe(code), code }));
   // Rings with hooks: a hook, a bend, a ring that laps itself, the same bend, the same hook, all turning the
-  // same way (l200,w90,r393,l3000,w90,l200). Only for benders marked as making them. The operator enters the
-  // smallest outside diameter and the hook length; the lap is drawn at RING_SWEEP and is not a measurement.
-  const RING_ANGLES = [90, 145, 180], RING_SWEEP = 3000 / 393;
+  // same way (l200,w90,r393,l3000,w90,l200). Only for benders marked as making ring shapes. The operator enters
+  // the smallest outside diameter and the hook length; the lap is drawn at RING_SWEEP and is not a measurement.
+  const RING_ANGLES = [90, 135, 180], RING_SWEEP = 3000 / 393, PLAIN_SWEEP = 2000 / 293;
   for (const a of RING_ANGLES) BUILTIN.push({ id: `ring-hook-${a}`, kind: 'ring', angle: a, name: `Ring with ${a}° hooks`, code: `l200,w${a},r393,l3000,w${a},l200` });
-  // A radius machine makes plain rings only: one figure per bar diameter, the smallest ring's outside diameter.
-  const RING_MIN = { id: 'ring-min', kind: 'ringmin', name: 'Smallest ring' };
+  // The plain ring (r293,l2000): one figure per bar diameter, the smallest ring's outside diameter. It is all a
+  // radius machine is asked for, and benders marked as making ring shapes are asked for it too.
+  const RING_MIN = { id: 'ring-min', kind: 'ringmin', name: 'Smallest ring', code: 'r293,l2000' };
 
   // Primitive ids, as the check uses them: lead-A, tail-A, int-s-A-B, int-o-A-B (A made first).
   const PRIM_IDS = [];
@@ -130,24 +188,16 @@ window.SA = (() => {
   }
 
   // ---------- shapes, queue ----------
-  // Minimal NSS reader: segment lengths, bends (angle and direction), which segments are arcs.
-  function parseNSS(code) {
-    const legs = [], arcs = [], bends = [];
-    let pendingR = false;
-    for (const t of String(code || '').trim().split(/[\s,]+/).filter(Boolean)) {
-      const m = t.match(/^([lwr])(-?\d+(?:\.\d+)?)$/i);
-      if (!m) return null;
-      const k = m[1].toLowerCase(), v = +m[2];
-      if (k === 'r') pendingR = true;
-      else if (k === 'l') { if (legs.length > bends.length) bends.push({ a: 0, d: 1 }); legs.push(v > 0 ? v : null); arcs.push(pendingR); pendingR = false; }
-      else { if (legs.length === bends.length) return null; bends.push({ a: Math.min(180, Math.abs(v)), d: v < 0 ? -1 : 1 }); }
-    }
-    return legs.length ? { legs, arcs, bends } : null;
-  }
   const customShapes = () => rows('shapes').sort((a, b) => (a.name || '').localeCompare(b.name || ''));
   // Arcs with bends are judged case by case, so added shapes with an arc are never queued; the ring-with-hooks
   // pieces are the exception and go only to benders marked as making them.
-  const shapesFor = m => BUILTIN.filter(s => s.kind !== 'ring' || m.ringHooks).concat(customShapes().filter(s => !s.hasArc));
+  // An added shape that is already on the list under another spelling is not asked for twice.
+  const shapeKey = s => s.sig || sigOf(s.code) || 'id:' + s.id;
+  function shapesFor(m) {
+    const out = BUILTIN.filter(s => s.kind !== 'ring' || m.ringHooks), have = new Set(out.map(shapeKey));
+    for (const s of customShapes()) if (!s.hasArc && !have.has(shapeKey(s))) { have.add(shapeKey(s)); out.push(s); }
+    return out;
+  }
   const comboKey = c => `${c.wire}|${c.pin}|${c.profile}`;
   // Wire and pin pairs the machine runs: every pair of its wires and pins, less the ones switched off.
   function combosOf(m) {
@@ -172,9 +222,20 @@ window.SA = (() => {
       }
       return items;
     }
-    for (const combo of combosOf(m)) for (const shape of shapesFor(m)) {
-      const recs = mine.filter(r => r.shape_id === shape.id && r.wire === combo.wire && r.pin === combo.pin && r.profile === combo.profile);
-      items.push({ combo, shape, state: stateOf(recs), recs });
+    // Records are matched to shapes by signature, so a piece saved under an older name or entered from the other
+    // end still counts. Rings match by id.
+    const byKey = new Map();
+    for (const r of mine) { const k = `${comboKey(r)}|${sigOf(r.code) || 'id:' + r.shape_id}`; if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(r); }
+    const shapes = shapesFor(m), combos = combosOf(m);
+    for (const wire of [...new Set(combos.map(c => c.wire))]) {
+      for (const combo of combos.filter(c => c.wire === wire)) for (const shape of shapes) {
+        const recs = byKey.get(`${comboKey(combo)}|${shapeKey(shape)}`) || [];
+        items.push({ combo, shape, state: stateOf(recs), recs });
+      }
+      if (m.ringHooks) {   // the plain ring has no bends, so it is asked once per bar, not per pin
+        const recs = mine.filter(r => r.shape_id === RING_MIN.id && r.wire === wire);
+        items.push({ combo: { wire, pin: null, profile: null }, shape: RING_MIN, state: stateOf(recs), recs });
+      }
     }
     return items;
   }
@@ -187,7 +248,7 @@ window.SA = (() => {
   }
 
   // ---------- minimums ----------
-  // What one made piece says about the primitives: each straight segment is an observation, as a straight
+  // What one made piece says about single segments (lead-A, tail-A, int-s-A-B, int-o-A-B, A made first): each straight segment is an observation, as a straight
   // (tangent point to tangent point, or to the bar end) worked out with the piece's own bar and pin.
   function observations(rec) {
     const s = parseNSS(rec.code);
@@ -213,7 +274,7 @@ window.SA = (() => {
   // from a piece recorded in more than one version, where it may not hold alongside its neighbours' minimums.
   function minimums() {
     const groups = new Map(), versions = new Map(), done = liveAudits().filter(r => r.status === 'done');
-    const vkey = r => `${r.machine_id}|${comboKey(r)}|${r.shape_id}`;
+    const vkey = r => `${r.machine_id}|${comboKey(r)}|${sigOf(r.code) || r.shape_id}`;
     for (const r of done) versions.set(vkey(r), (versions.get(vkey(r)) || 0) + 1);
     for (const r of done) {
       const gk = `${r.machine_id}|${comboKey(r)}`, obs = observations(r);
@@ -227,6 +288,18 @@ window.SA = (() => {
       }
     }
     return [...groups.values()];
+  }
+  // Every bent piece saved, with its bends read out, for checking a shape as a whole.
+  function shapeVersions() {
+    const out = [];
+    for (const r of liveAudits()) {
+      if (r.status !== 'done') continue;
+      const p = parseNSS(r.code), sig = p && sigOf(p);
+      if (!sig || p.legs.some(L => L == null)) continue;
+      const m = get('machines', r.machine_id);
+      out.push({ rec: r, sig, seq: seqOf(p), legs: p.legs, angles: p.bends.map(b => b.a), machine: m ? m.name : '(deleted machine)' });
+    }
+    return out;
   }
   // Ring minimums. plain: smallest ring per radius machine and bar. hooked: smallest diameter and shortest hook
   // per bender, bar, pin and hook angle, each taken across the versions saved.
@@ -266,7 +339,8 @@ window.SA = (() => {
   }
 
   return {
-    GRID, PROFILES, BUILTIN, RING_ANGLES, RING_SWEEP, RING_MIN, ringData, recText, PRIM_IDS, primInfo, actualOf, setbackOf, esc, cfg, saveCfg, rows, get, put, remove,
+    GRID, PROFILES, BUILTIN, RING_ANGLES, RING_SWEEP, PLAIN_SWEEP, RING_MIN, ringData, recText, PRIM_IDS,
+    sigOf, alignments, symmetric, describe, shapeKey, shapeVersions, primInfo, actualOf, setbackOf, esc, cfg, saveCfg, rows, get, put, remove,
     sync, syncState: () => syncState, onChange: f => listeners.push(f), exportAll, importAll,
     parseNSS, customShapes, shapesFor, comboKey, combosOf, queue, nextItem, observations, minimums, gridWeights,
   };

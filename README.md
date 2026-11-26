@@ -118,46 +118,42 @@ from it a check that says whether a hypothetical shape can be made on at least o
 
 ### The idea
 
-A minimum belongs to a segment and depends only on the bend at each end of it, the order those two bends are
-made in, the bar and the pin. So every shape breaks down into a fixed set of **primitives**:
+Auditing every bend combination on every bar and pin came to too many pieces, so the audit asks for the
+shapes that are cut most often. Each bender is asked for each shape on each of its bar and pin combinations.
 
-| Primitive | Meaning | Count |
-|---|---|---|
-| `lead-A` | free end, then the first bend made | 4 |
-| `tail-A` | the last bend made, then the cut (the machine can draw the wire back, so this differs from the lead) | 4 |
-| `int-s-A-B` | segment between bend A (made first) and bend B (made second), turning the same way | 16 |
-| `int-o-A-B` | the same, turning opposite ways | 16 |
+### Audit shapes
 
-A and B are 45, 90, 135 or 180. A pin is its diameter and its profile (round, hoe-like, shark fin); a 64 round
-and a 64 hoe-like are separate pins. One pin per piece. Minimums are the same up or down.
+The list is `TOP_SHAPES` in `shared.js`: 19 bent shapes. A shape there is its bends only. The lengths in a
+code say which segments are short and which long, for the drawing, and nothing else. The operator is not given
+lengths: the angles are fixed, they make the shape as short as the machine will go, and enter every length
+achieved.
 
-### Audit pieces
+Getting one segment to its minimum can stop another reaching its own. **Save and add a version** records
+another combination of the same shape. Each version is a full set of lengths that was made together, and says
+which end it was bent from.
 
-The operator is not given lengths. Each piece is a shape with its angles fixed; the operator makes it as short
-as the machine will go and enters what was achieved. One piece therefore gives a minimum for every segment in
-it, so the 40 primitives are covered by 36 pieces per bar and pin:
+A shape can be written four ways: as is, mirrored, from the other end, or both. All four are the same shape to
+the audit (minimums are the same up or down, and the end bent from is recorded), so records and shapes are
+matched by a signature that ignores how they were entered. A piece saved under the earlier catalogue still
+counts for the matching shape.
 
-- `p1-A`: one bend. Gives `lead-A` and `tail-A`.
-- `p2-s-A-B`, `p2-o-A-B`: two bends, A made first. Gives `lead-A`, the segment between, and `tail-B`.
+**Added shapes**: draw anything in the Shape Builder and use **Add to audit**. One already on the list, in any
+of its four spellings, is refused.
 
-Plus **composites**, whole shapes whose limit is not between two bends (on a tight closed tie it is the bent
-bar coming back round behind the pin): `tie-sq-135` is built in, more go in `BUILTIN` in `shared.js`. And
-**added shapes**: draw anything in the Shape Builder and use **Add to audit**.
+A pin is its diameter and its profile (round, hoe-like, shark fin); a 64 round and a 64 hoe-like are separate
+pins. One pin per piece.
 
 ### Rings and arcs
 
-- **Radius machines** make plain rings only. They have no pins and no pieces: the audit is one form with the
-  smallest ring's outside diameter for each bar diameter.
-- **Rings with hooks** at 90°, 145° and 180° (`l200,w90,r393,l3000,w90,l200`: hook, bend, a ring that laps
-  itself, the same bend, the same hook, all turning the same way) are built-in pieces for benders marked
-  **Makes rings with hooks**. The operator enters the smallest outside diameter and the hook length; both
-  hooks are the same. These are kept apart from the straight-shape primitives.
+- **Plain ring** (`r293,l2000`): the smallest ring's outside diameter, one figure per bar diameter. It is all
+  a **radius machine** is asked for, on one form. Benders marked **Makes ring shapes** are asked for it too,
+  once per bar.
+- **Rings with hooks** at 90°, 135° and 180° (`l200,w90,r393,l3000,w90,l200`: hook, bend, a ring that laps
+  itself, the same bend, the same hook, all turning the same way), for benders marked **Makes ring shapes**,
+  on each bar and pin. The operator enters the smallest outside diameter and the hook length; both hooks are
+  the same.
 - **Any other shape with an arc** is not audited and cannot be added: arcs with bends are evaluated case by
   case.
-
-Getting one segment to its minimum can stop another reaching its own. **Save and add a version** records
-another combination of the same piece. A primitive's minimum is the shortest that segment reached in any
-version.
 
 ### Sections
 
@@ -166,39 +162,40 @@ version.
   structure locked. Segments not yet entered are drawn at a nominal length and labelled `?`. Enter moves
   through the lengths and saves on the last one. Skip for now sends the piece to the back of the queue;
   Can't make records that the machine cannot do it, with a reason. The queue runs bar diameter outermost,
-  then pin, then piece, to keep changeovers down. Added shapes can be marked as bent from the end.
+  then pin, then shape, to keep changeovers down.
 - **Machines**: name, type (bender or radius machine), bar or coil, diameters, and for a bender its pins
-  (diameter and profile), which bar runs on which pin, whether it makes rings with hooks, and whether it can
+  (diameter and profile), which bar runs on which pin, whether it makes ring shapes, and whether it can
   reverse bend (recorded, not used yet).
 - **Shapes**: the built-in pieces and the added ones.
 - **Review data**: every saved piece. Void takes a record out of the minimums and puts its piece back in the
   queue.
-- **Findings**: minimums by machine for a bar and pin, pieces with more than one version and the spread
-  between them, smallest rings, rings with hooks, and the Can't make list.
+- **Findings**: every version of each shape by machine for a bar and pin, segment minimums, pieces with more
+  than one version and the spread between them, smallest rings, rings with hooks, and the Can't make list.
 - **Settings**: database connection, export and import.
 
 ### Machine check (in the Shape Builder)
 
-Under the stats. For each machine with audit data for the shape's bar and pin diameter, the shape is checked
-in both feed orders (bent from the start of bar, bent from the end), since the order decides which end is the
-lead, which is the tail, and which bend of each pair comes first. Each segment is **Pass** at or above the
-audited minimum, **Under minimum** below it, and **Unknown** where nothing has been audited.
+Under the stats, for each machine with audit data for the shape's bar and pin diameter, in both feed orders
+(bent from the start of bar, bent from the end).
 
-Minimums are held as straights (tangent to tangent), worked out with the audited piece's own bar and pin,
-then shown as segment lengths for the shape. Angles between the four are interpolated on the straight and
-marked as interpolated. Bends under 45° and shapes with per-bend pins come out Unknown.
+- **As this shape.** Where the machine has versions of this same shape, the shape is compared with them
+  whole. It passes if some version has every segment no longer than the shape's. If a segment is shorter than
+  it was made in any version, it is **Under minimum**. If every length has been made but never together, the
+  result is **Unknown** and the saved versions are listed.
+- **Segment by segment.** Where the shape itself was not audited on that machine, each segment is compared
+  with the shortest made between the same two bends, in the same order, in any other shape (`lead-A`, `tail-A`,
+  `int-s-A-B`, `int-o-A-B`). This is less certain: it ignores trade-offs between neighbours, and many segments
+  will have no data. Angles between 45, 90, 135 and 180 are interpolated and marked.
 
-Shapes with an arc are handled separately. A single arc or ring is checked against each radius machine's
-smallest ring for that bar (a partial arc is checked against the full-ring figure, which may not hold for a
-short arc). A ring with 90°, 145° or 180° hooks is checked for diameter and hook length on the benders audited
-for it. Anything else with an arc gets no verdict.
+Lengths are compared as straights (tangent to tangent), worked out with the audited piece's own bar and pin.
+Shapes with per-bend pins are not checked.
 
-Limits to keep in mind:
+Shapes with an arc are handled separately. A single arc or ring is checked against each machine's smallest
+ring for that bar (a partial arc is checked against the full-ring figure, which may not hold for a short arc).
+A ring with 90°, 135° or 180° hooks is checked for diameter and hook length on the benders audited for it.
+Anything else with an arc gets no verdict.
 
-- The check is per segment. Where a minimum comes from a piece with more than one version it is flagged as a
-  trade-off: it may not hold with the neighbouring segments at their own minimums.
-- Collisions with the machine or with the bar itself are not checked, and composites are recorded but not
-  used by the check.
+Collisions with the machine or with the bar itself are not checked.
 
 ### Storage
 
